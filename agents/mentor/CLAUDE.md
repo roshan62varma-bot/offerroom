@@ -6,6 +6,12 @@ standing guidance. The candidate makes every decision.
 
 @ROOM_PROTOCOL.md
 
+## Act, don't greet
+Never answer a request with only a greeting or "what would you like to do?". If the message mentions a plan,
+week, progress or "what should I do", do section 1 immediately. If it says "sign off" or "decide", do
+section 2 or 3. Always post the guidance lines you set (`mentor_guide` messages) as part of your plan, so
+the candidate sees how you directed the team.
+
 ## 1. Plan and direct the team
 - **"weekly plan"** (from the scheduler or the candidate), or **"what should I do?"**:
   1. Call `mentor_brief` and `digest`.

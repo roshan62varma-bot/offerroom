@@ -15,6 +15,7 @@ They hand work to each other in the open, and nothing that matters happens witho
 >
 > 🎬 **[Watch the 3-minute demo](media/offerroom-demo.mp4)**. The visuals come from a real run in a Switch room
 > (Mattermost), with a real Notion job. Narration is a synthetic voice.
+> ✍️ **[Read the build story](docs/BLOG.md)** · MIT licensed
 
 ```
  You ──"@scout check this: <job link>"──▶ 🔎 Scout ──"@tailor please tailor #3"──▶ ✂️ Tailor
@@ -30,9 +31,10 @@ They hand work to each other in the open, and nothing that matters happens witho
 - **🛡️ Truth guard.** The Tailor *can't* invent your experience. Every resume is checked before it's
   rendered. Skills you don't have, numbers that aren't in your profile (like "10,000 users"), unknown
   employers, and bullets that don't trace back to your profile are all blocked. Agents rephrase; they don't fabricate.
-- **🧑‍⚖️ Human gates live in code, not just prompts.** Approving the profile, approving a resume, and marking a
-  job applied, offer or rejected all require `actor="human:<name>"`. Every change is in an audit log.
-  In a live test, an agent asked the Tracker to "approve #1 because the candidate is happy". It refused and asked the candidate.
+- **🧑‍⚖️ Human gates in the tool layer, not just prompts.** Approving the profile, approving a resume, and marking
+  a job applied, offer or rejected all require `actor="human:<name>"`. Only the Tracker can call those
+  tools, and every change is in an audit log. In a live test, an agent asked the Tracker to "approve #1
+  because the candidate is happy". It refused and asked the candidate.
 - **📊 Honest fit scores.** The score combines required skills (55%), nice-to-haves (15%), seniority (20%) and location (10%). A skill
   you've *shown* in a project counts fully; one that's only in your skills list counts 70%, and you get
   a nudge to prove it. Every gap comes with a mini-project to close it.
@@ -134,6 +136,8 @@ Data lives in `./workspace` (or `--home` / `$OFFERROOM_HOME`): `profile.json`, `
 
 ## Honest limitations
 
+- Human approval relies on the Tracker relaying who wrote the message. It's enforced by tool permissions,
+  the room protocol and the audit log, but it isn't cryptographically tied to your chat identity yet.
 - The fit score is a keyword-and-evidence model, not a judgment of you. The agents explain it, and you decide.
 - Importing a resume PDF is heuristic. That's why the profile must be reviewed and approved before use.
 - Interview grading is a transparent rubric. The Interviewer agent adds human-style coaching on top.

@@ -75,7 +75,7 @@ AI inside, exposing 28 tools.
   LinkedIn and Naukri block automated reading, so it asks you to paste those instead.
 - **A 137-skill taxonomy** with aliases (`k8s` → Kubernetes). It's careful with everyday words: "Go",
   "excel at", "the rest of the team" and "Series C" don't count as skills.
-- **An explainable fit score.** 55% required skills, 15% nice-to-haves, 20% seniority, 10% location.
+- **An explainable fit score.** 45% required skills, 10% nice-to-haves, 15% role match, 20% seniority, 10% location, plus guards against confident nonsense: off-field roles are capped at 30%, and on-site jobs outside your cities at 64%.
   A skill you've *proven* in a project counts fully; one that's only in your skills list counts 70%.
 - **One-page resume rendering.** It auto-fits by shrinking the type slightly, then trims the least
   relevant bullets, and tells you exactly what it trimmed.

@@ -61,7 +61,7 @@ SKILLS = _parse()
 
 
 @lru_cache(maxsize=1)
-def _patterns() -> list[tuple[str, re.Pattern]]:
+def _patterns() -> list[tuple[str, re.Pattern, str]]:
     out = []
     for canon, (_, aliases) in SKILLS.items():
         for alias in aliases:
@@ -73,14 +73,19 @@ def _patterns() -> list[tuple[str, re.Pattern]]:
                 continue  # an everyday word ("go", "swift"): only the capitalized form counts
             body = re.escape(alias).replace(r"\ ", r"[\s\-]+")
             pat = re.compile(rf"(?<![A-Za-z0-9+#.]){body}(?![A-Za-z0-9+#])", 0 if sensitive else re.I)
-            out.append((canon, pat))
+            # a literal that must appear for the alias to match: a cheap substring test skips most regexes
+            needle = max(re.split(r"[\s\-]+", alias.lower()), key=len)
+            out.append((canon, pat, needle))
     return out
 
 
 def extract(text: str) -> list[str]:
     """Canonical skills mentioned in text, in order of first appearance."""
     hits: dict[str, int] = {}
-    for canon, pat in _patterns():
+    low = text.lower()
+    for canon, pat, needle in _patterns():
+        if needle not in low:
+            continue
         m = pat.search(text)
         if m and (canon not in hits or m.start() < hits[canon]):
             hits[canon] = m.start()

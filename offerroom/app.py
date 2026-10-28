@@ -145,10 +145,12 @@ class OfferRoom:
                limit: int = 5, actor: str = "agent") -> dict:
         p = self.profile()
         level = level or ("intern" if p["preferences"].get("level") == "intern" else "entry")
-        found, notes = jb.search(query, location, remote_only, level, self.watchlist()["watchlist"], limit=60)
+        found, notes = jb.search(query, location, remote_only, level, self.watchlist()["watchlist"], limit=60,
+                                 cache_dir=self.home / "cache")
         known = {a["job_id"] for a in self.store.apps()}
-        scored = sorted(((fitmod.score(p, j), j) for j in found if j.id not in known),
-                        key=lambda x: -x[0]["score"])[:limit]
+        scored = [(fitmod.score(p, j), j) for j in found if j.id not in known]
+        scored = [(f, j) for f, j in scored if f["breakdown"]["role"] > 10]  # skip marketing/sales/ops noise
+        scored = sorted(scored, key=lambda x: -x[0]["score"])[:limit]
         results, lines = [], []
         for f, j in scored:
             self.store.save_job(j)

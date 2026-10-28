@@ -45,7 +45,7 @@ They hand work to each other in the open, and nothing that matters happens witho
 - **🥊 Agents push back on each other.** Before a resume reaches you, the Interviewer critiques the Tailor's
   work: weak verbs, missing impact, overlong bullets, and job skills you have but the resume hides. It sends
   fixes back. Fixes that need a number go to *you*, because agents never guess numbers.
-- **📊 Honest fit scores.** The score combines required skills (55%), nice-to-haves (15%), seniority (20%) and location (10%). A skill
+- **📊 Honest fit scores.** The score combines required skills (45%), nice-to-haves (10%), role match (15%), seniority (20%) and location (10%). Guards stop confident nonsense: a marketing role can't top an engineer's list, a posting that names one skill can't look like a perfect match, and an on-site job in another city is capped. A skill
   you've *shown* in a project counts fully; one that's only in your skills list counts 70%, and you get
   a nudge to prove it. Every gap comes with a mini-project to close it.
 - **🎤 Mock interviews for the exact role.** Questions come from the job's skills and your own projects. Each answer gets

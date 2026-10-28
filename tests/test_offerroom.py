@@ -82,10 +82,28 @@ def test_fit_ranks_sensibly(room):
 
 
 def test_listed_only_skill_gets_partial_credit_and_a_nudge(room):
+    from offerroom.fit import score
+    j = jb.from_text("Intern\nRequirements\n- Java\n- Python\n- SQL", "Software Engineer Intern", "Beanly")
+    f = score(room.profile(), j)  # Java is only in the skills list; Python and SQL are proven in projects
+    assert f["breakdown"]["required"] == 90 and any("Java" in x for x in f["prove_it"])
+
+
+def test_fit_guards_against_confident_nonsense(room):
+    from offerroom.fit import score
     p = room.profile()
-    j = jb.from_text("Intern\nRequirements\n- Java", "Java Intern", "Beanly")
-    f = __import__("offerroom.fit", fromlist=["score"]).score(p, j)
-    assert f["breakdown"]["required"] == 70 and f["prove_it"]
+    marketing = jb.from_text("Requirements\n- Experience with LLMs", "Growth Marketing Intern", "Sarvam",
+                             location="Bengaluru")
+    f = score(p, marketing)
+    assert f["score"] <= 30 and "different field" in f["role_note"]
+    thin = jb.from_text("Requirements\n- Python", "Software Engineer Intern", "Tiny", location="Remote")
+    assert score(p, thin)["breakdown"]["required"] < 80  # one matched skill isn't proof of a great fit
+    far = jb.from_text("Requirements\n- Python\n- SQL\n- FastAPI", "Backend Engineer Intern", "Far",
+                       location="San Francisco, California")
+    f = score(p, far)
+    assert f["score"] <= 64 and f["capped_by"]
+    near = jb.from_text("Requirements\n- Python\n- SQL\n- FastAPI", "Backend Engineer Intern", "Near",
+                        location="Bengaluru")
+    assert score(p, near)["score"] >= 85 and "backend" in score(p, near)["role_note"]
 
 
 # --------------------------------------------------------- truth guard ---
@@ -319,12 +337,73 @@ def test_opencode_setup_mirrors_permissions(tmp_path):
     assert "@ROOM_PROTOCOL.md" not in agents_md and "Human gates" in agents_md
 
 
+def test_demo_is_repeatable_and_protects_real_data(tmp_path, capsys):
+    from offerroom.cli import main
+    demo = tmp_path / "demo"
+    assert main(["--home", str(demo), "demo"]) == 0
+    assert main(["--home", str(demo), "demo"]) == 0  # second run starts clean instead of crashing
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "profile.json").write_text("{}")
+    assert main(["--home", str(real), "demo"]) == 2
+    assert (real / "profile.json").exists()
+
+
 def test_clock_schedule():
     from offerroom.clock import next_runs, post
     runs = next_runs(datetime(2026, 11, 4, 10, 0), "09:00", "sun")  # a Wednesday, after 9am
     assert runs["morning"] == datetime(2026, 11, 5, 9, 0)
     assert runs["digest"] == datetime(2026, 11, 8, 9, 5)
     assert "@scout morning run" in post("@scout morning run", dry_run=True)
+
+
+def test_import_our_own_pdf_round_trip(room):
+    """PDF bullets are drawn shapes, so extracted text has no bullet characters at all."""
+    room.profile_approve("human:aanya")
+    pdf = room.render("1")["pdf"]
+    p, _ = pr.import_text(pr.text_from_pdf(pdf))
+    assert p["name"] == "Aanya Rao" and p["education"][0]["grade"] == "8.6/10"
+    assert p["education"][0]["degree"].startswith("B.Tech")
+    assert [x["name"] for x in p["projects"]] == ["QueueLess", "PaperTrail", "StudySync"]
+    assert all(x["bullets"] for x in p["projects"]) and len(p["experience"][0]["bullets"]) == 3
+    assert p["projects"][0]["tech"] == ["Python", "FastAPI", "Redis", "Docker"]
+    assert len(p["achievements"]) == 3 and not pr.validate(p)
+
+
+def test_import_jakes_resume_layout():
+    """The common LaTeX student template: dates on the degree line, two-line headers, wrapped bullets."""
+    text = """Priyanshu Kumar
++91 98765 43210 | priyanshu.k@example.com | linkedin.com/in/priyanshu-example | github.com/priyanshu-example
+Education
+National Institute of Technology, Trichy Tiruchirappalli, India
+Bachelor of Technology in Computer Science; CGPA: 8.42/10 Aug. 2022 – May 2026
+Experience
+Software Engineering Intern Jun. 2025 – Aug. 2025
+Zeta Suite Bengaluru, India
+● Developed REST APIs in Spring Boot serving 10,000 requests per day, reducing p95
+latency by 30% through query caching with Redis
+● Wrote integration tests with JUnit for the payments ledger
+Projects
+Gitlytics | Python, Flask, React, PostgreSQL, Docker June 2024 – Present
+● Built a dashboard that visualises GitHub commit activity for teams
+● Containerized the stack with Docker Compose
+Technical Skills
+Languages: Java, Python, C++, SQL, JavaScript
+Frameworks: Spring Boot, Flask, React
+Achievements
+● Ranked 412 in CodeChef Starters 140 among 25,000
+participants
+"""
+    p, _ = pr.import_text(text)
+    e = p["experience"][0]
+    assert e["role"] == "Software Engineering Intern" and e["company"].startswith("Zeta Suite")
+    assert len(e["bullets"]) == 2 and e["bullets"][0].endswith("caching with Redis")
+    assert p["education"][0]["school"].startswith("National Institute of Technology")
+    assert p["education"][0]["grade"] == "8.42/10" and p["education"][0]["start"].startswith("Aug")
+    assert p["education"][0]["degree"].startswith("Bachelor of Technology")
+    assert p["projects"][0]["name"] == "Gitlytics" and "Flask" in p["projects"][0]["tech"]
+    assert p["achievements"] == ["Ranked 412 in CodeChef Starters 140 among 25,000 participants"]
+    assert {"Java", "Spring Boot", "C++"} <= set(p["skills"]) and not pr.validate(p)
 
 
 def test_safe_turns_errors_into_messages(tmp_path):

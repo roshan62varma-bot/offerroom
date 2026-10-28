@@ -246,9 +246,24 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     home = args.home or (Path.cwd() / "demo-workspace" if args.cmd == "demo" else None)
-    room = OfferRoom(home)
     if args.cmd == "demo":
-        return cmd_demo(args, room)
+        # the demo tells the same story every time, so it starts from a clean slate, but only in a folder
+        # that is empty or was made by a previous demo, never in a real workspace
+        demo_home = Path(home).resolve()
+        marker = demo_home / ".offerroom-demo"
+        if demo_home.exists() and any(demo_home.iterdir()) and not marker.exists():
+            print(f"❌ {demo_home} already has data that isn't from a demo. Pick another --home.", file=sys.stderr)
+            return 2
+        if demo_home.exists():
+            shutil.rmtree(demo_home)
+        demo_home.mkdir(parents=True)
+        marker.write_text("created by `offerroom demo`; safe to delete\n", encoding="utf-8")
+        demo_room = OfferRoom(demo_home)
+        try:
+            return cmd_demo(args, demo_room)
+        finally:
+            demo_room.store.db.close()  # Windows keeps open files locked; let the next run clean up
+    room = OfferRoom(home)
     if args.cmd == "setup-agents":
         return cmd_setup_agents(args, room)
     if args.cmd == "people":

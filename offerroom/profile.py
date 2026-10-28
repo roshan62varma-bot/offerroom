@@ -169,19 +169,33 @@ _HEADINGS = {
     "certifications": r"certifications?|courses|licenses",
     "summary": r"summary|profile|objective|about me",
 }
-_BULLET = re.compile(r"^\s*(?:[•●▪◦‣∙\-*–]|•|)\s*")
+_BULLET = re.compile("^\\s*[•●▪◦‣∙–■*\\-]\\s*")
+# Many resumes (Word, LaTeX, Canva, and OfferRoom's own PDFs) draw bullets as shapes, so extracted text has
+# no bullet characters. Lines that open with an action verb are bullets too.
+_ACTION = re.compile(
+    r"^(?:built|cut|wrote|designed|developed|created|implemented|led|added|handled|containerized|evaluated|"
+    r"improved|reduced|increased|automated|organized|organised|deployed|integrated|optimized|optimised|managed|"
+    r"migrated|launched|shipped|collaborated|worked|helped|analyzed|analysed|trained|researched|tested|"
+    r"refactored|maintained|configured|set up|solved|won|achieved|mentored|taught|conducted|presented|"
+    r"engineered|architected|scaled|secured|streamlined|published|contributed|coordinated|delivered|"
+    r"established|spearheaded|ran|made|used|completed|ranked|selected|awarded|participated|volunteered)\b", re.I)
+_SPLIT = re.compile(r"\s*[|•–—]\s*|\s{2,}")
+_GRADE = re.compile(r"(?:cgpa|gpa|grade|percentage|score|marks)[^\d\n]{0,12}([\d.]+\s*(?:/\s*[\d.]+|%)?)", re.I)
+_SCHOOL = re.compile(r"universit|institute|college|school|academy|\biit|\bnit\b|iiit|\bbits\b|vidyalaya", re.I)
 _DATE_RANGE = re.compile(
     r"((?:[A-Za-z]{3,9}\.?\s*'?\d{2,4})|\d{1,2}/\d{4}|\d{4})\s*(?:-|–|—|to)\s*"
     r"((?:[A-Za-z]{3,9}\.?\s*'?\d{2,4})|\d{1,2}/\d{4}|\d{4}|present|current|now|ongoing)", re.I)
 
 
 def _heading(line: str) -> str | None:
-    clean = re.sub(r"[^A-Za-z &\-]", "", line).strip().lower()
-    if not clean or len(clean) > 40:
+    clean = re.sub(r"\s+", " ", re.sub(r"[^A-Za-z &/\-]", "", line)).strip().lower()
+    if not clean or len(clean) > 45:
         return None
-    for sec, pat in _HEADINGS.items():
-        if re.fullmatch(pat, clean):
-            return sec
+    # "Achievements & Certifications", "Skills / Tools": the first part names the section
+    for candidate in (clean, re.split(r"\s*(?:&|/|\band\b)\s*", clean)[0]):
+        for sec, pat in _HEADINGS.items():
+            if re.fullmatch(pat, candidate):
+                return sec
     return None
 
 
@@ -222,8 +236,8 @@ def import_text(text: str) -> tuple[dict, list[str]]:
     p["summary"] = " ".join(buckets.get("summary", []))[:600]
     skill_text = " ".join(buckets.get("skills", []))
     p["skills"] = sk.extract(skill_text) or [s.strip() for s in re.split(r"[,:|;]", skill_text) if 1 < len(s.strip()) < 30]
-    p["achievements"] = [_BULLET.sub("", l) for l in buckets.get("achievements", [])]
-    p["certifications"] = [_BULLET.sub("", l) for l in buckets.get("certifications", [])]
+    p["achievements"] = _items(buckets.get("achievements", []))
+    p["certifications"] = _items(buckets.get("certifications", []))
     for sec in ("experience", "projects", "education"):
         p[sec] = _entries(sec, buckets.get(sec, []), notes)
     p = normalize(p)
@@ -233,17 +247,51 @@ def import_text(text: str) -> tuple[dict, list[str]]:
     return p, notes
 
 
+def _is_bullet(line: str) -> bool:
+    s = line.strip()
+    return bool(_BULLET.match(s)) or bool(_ACTION.match(s))
+
+
+def _is_header(line: str) -> bool:
+    """An entry title line: has dates, a ' | ' separator, a link, or wide column gaps, or is short and
+    doesn't read like a sentence."""
+    s = line.strip()
+    if _is_bullet(s):
+        return False
+    return (bool(_DATE_RANGE.search(s)) or " | " in s or "|" in s or bool(re.search(r"github\.com|https?://", s))
+            or bool(re.search(r"\S\s{3,}\S", line))
+            or (len(s.split()) <= 7 and not s.endswith(".") and s[:1].isupper()))
+
+
+def _continues(line: str) -> bool:
+    """A wrapped line of the previous bullet: starts in lower case or with a continuation character."""
+    s = line.strip()
+    return bool(s) and (s[0].islower() or s[0] in ",;&(+") and not _BULLET.match(s)
+
+
+def _items(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    for line in lines:
+        if out and _continues(line):
+            out[-1] += " " + line.strip()
+        else:
+            out.append(_BULLET.sub("", line).strip())
+    return [x for x in out if x]
+
+
 def _entries(sec: str, lines: list[str], notes: list[str]) -> list[dict]:
+    if sec == "education":
+        return _education(lines, notes)
     entries: list[dict] = []
     cur: dict | None = None
     for line in lines:
-        if _BULLET.match(line):
+        if cur is not None and cur["bullets"] and _continues(line):
+            cur["bullets"][-1] += " " + line.strip()  # wrapped bullet line
+        elif _is_bullet(line) or (cur is not None and cur["header"] and not _is_header(line)):
             if cur is None:
                 cur = {"header": [], "bullets": []}
                 entries.append(cur)
             cur["bullets"].append(_BULLET.sub("", line).strip())
-        elif cur is not None and cur["bullets"] and not _looks_like_header(line):
-            cur["bullets"][-1] += " " + line.strip()  # wrapped bullet line
         else:
             if cur is None or cur["bullets"]:
                 cur = {"header": [], "bullets": []}
@@ -251,32 +299,64 @@ def _entries(sec: str, lines: list[str], notes: list[str]) -> list[dict]:
             cur["header"].append(line.strip())
     out = []
     for e in entries:
-        header = " | ".join(e["header"])
+        header = "   ".join(e["header"])
         d = _DATE_RANGE.search(header)
         start, end = (d.group(1), d.group(2)) if d else ("", "")
         head = _DATE_RANGE.sub("", header).strip(" |,–-")
-        parts = [x.strip() for x in re.split(r"\s*[|•–—]\s*|\s{2,}|,\s(?=[A-Z])", head) if x.strip()]
+        parts = [x.strip(" ,") for x in _SPLIT.split(head) if x.strip(" ,")]
         if sec == "experience":
             role = next((x for x in parts if re.search(r"intern|engineer|developer|analyst|assistant|lead|"
-                                                       r"associate|trainee|member|volunteer", x, re.I)), "")
+                                                       r"associate|trainee|member|volunteer|scientist|designer",
+                                                       x, re.I)), "")
             company = next((x for x in parts if x != role), "")
             out.append({"company": company, "role": role or (parts[1] if len(parts) > 1 else ""),
                         "start": start, "end": end, "bullets": e["bullets"]})
-        elif sec == "projects":
-            name = parts[0] if parts else "Project"
-            tech = sk.extract(" ".join(parts[1:]) + " " + " ".join(e["bullets"]))
-            link = next((x for x in parts if re.search(r"https?://|github\.com", x)), "")
-            out.append({"name": name, "tech": tech, "link": link, "bullets": e["bullets"]})
-        else:
-            grade = re.search(r"(?:cgpa|gpa|percentage|score)[:\s]*([\d.]+\s*(?:/\s*[\d.]+|%)?)", header, re.I)
-            out.append({"school": parts[0] if parts else "", "degree": parts[1] if len(parts) > 1 else "",
-                        "start": start, "end": end, "grade": grade.group(1) if grade else "",
+        else:  # projects
+            link = next((x for x in re.findall(r"(?:https?://)?(?:www\.)?github\.com/[\w./-]+|https?://\S+", head)), "")
+            name = re.sub(re.escape(link), "", parts[0]).strip() if parts else "Project"
+            rest = re.sub(re.escape(link), "", " ".join(parts[1:])) if link else " ".join(parts[1:])
+            tech = sk.extract(rest) or sk.extract(" ".join(e["bullets"]))
+            out.append({"name": name or "Project", "tech": tech,
+                        "link": link if not link or link.startswith("http") else "https://" + link,
                         "bullets": e["bullets"]})
     if lines and not out:
         notes.append(f"{sec}: found text but no entries; check it by hand")
     return out
 
 
-def _looks_like_header(line: str) -> bool:
-    return bool(_DATE_RANGE.search(line)) or (len(line) < 60 and line.strip()[:1].isupper() and line.count(" ") < 7
-                                               and not line.rstrip().endswith("."))
+def _education(lines: list[str], notes: list[str]) -> list[dict]:
+    """School line (often with dates), then degree / grade / coursework lines."""
+    out: list[dict] = []
+    for line in lines:
+        s = _BULLET.sub("", line).strip()
+        d = _DATE_RANGE.search(s)
+        new_school = _SCHOOL.search(s) and (d or not out or out[-1]["school"])
+        if new_school and not s.lower().startswith("coursework"):
+            school = _SPLIT.split(_DATE_RANGE.sub("", s).strip(" |,"))[0].strip(" ,")
+            out.append({"school": school, "degree": "", "start": d.group(1) if d else "",
+                        "end": d.group(2) if d else "", "grade": "", "coursework": [], "bullets": []})
+            grade = _GRADE.search(s)
+            if grade:
+                out[-1]["grade"] = grade.group(1).strip()
+            continue
+        if not out:
+            out.append({"school": "", "degree": "", "start": "", "end": "", "grade": "", "coursework": [],
+                        "bullets": []})
+        e = out[-1]
+        if d and not e["start"]:
+            e["start"], e["end"] = d.group(1), d.group(2)
+        if s.lower().startswith(("coursework", "relevant coursework")):
+            e["coursework"] = [c.strip(" .") for c in re.split(r"[,;]", s.split(":", 1)[-1]) if c.strip(" .")]
+            continue
+        grade = _GRADE.search(s)
+        if grade and not e["grade"]:
+            e["grade"] = grade.group(1).strip()
+        degree = _DATE_RANGE.sub("", _GRADE.sub("", s)).strip(" ,|:-")
+        degree = re.sub(r"\b(?:cgpa|gpa|grade)\b[/\s:]*$", "", degree, flags=re.I).strip(" ,|:-/")
+        if degree and not e["degree"]:
+            e["degree"] = degree
+        elif degree:
+            e["bullets"].append(degree)
+    if lines and not out:
+        notes.append("education: found text but no entries; check it by hand")
+    return out

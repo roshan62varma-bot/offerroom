@@ -166,10 +166,13 @@ def from_text(text: str, title: str = "", company: str = "", url: str = "", loca
 
 # ---------------------------------------------------------------- http --
 
+TIMEOUT = 20  # seconds; search() lowers it so one slow board can't stall everything
+
+
 def _get(url: str, accept: str = "application/json") -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": accept})
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             return r.read().decode(r.headers.get_content_charset() or "utf-8", "replace")
     except Exception as e:  # noqa: BLE001 - surface any network failure the same way
         raise JobError(f"could not fetch {url}: {e}") from e
@@ -283,31 +286,51 @@ SENIOR_TITLE = re.compile(r"\b(?:senior|sr|staff|principal|lead|manager|head|dir
 
 
 def search(query: str = "", location: str = "", remote_only: bool = False, level: str = "entry",
-           watchlist: dict | None = None, limit: int = 30) -> tuple[list[Job], list[str]]:
-    """Search public sources. Returns (jobs, notes about sources that failed)."""
+           watchlist: dict | None = None, limit: int = 30, cache_dir=None) -> tuple[list[Job], list[str]]:
+    """Search public sources. Returns (jobs, notes about sources that failed).
+    With `cache_dir`, each source's postings are reused for 30 minutes (a morning run makes several searches)."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+
+    global TIMEOUT
     jobs: list[Job] = []
     notes: list[str] = []
     q = urllib.parse.quote(query)
-    sources = [("remotive", lambda: _remotive(q))]
+    sources = [(f"remotive-{hashlib.sha1(q.encode()).hexdigest()[:8]}", lambda: _remotive(q))]
     if not remote_only:
         sources.append(("arbeitnow", _arbeitnow))
     for kind, boards in (watchlist or {}).items():
         for board in boards:
-            sources.append((f"{kind}:{board}", lambda k=kind, b=board: _board(k, b)))
-    from concurrent.futures import ThreadPoolExecutor
+            sources.append((f"{kind}-{board}", lambda k=kind, b=board: _board(k, b)))
 
     def fetch(src):
         name, fn = src
+        cached = Path(cache_dir) / f"{name}.json" if cache_dir else None
+        if cached and cached.exists() and time.time() - cached.stat().st_mtime < 1800:
+            try:
+                return [Job(**d) for d in json.loads(cached.read_text(encoding="utf-8"))], None
+            except (ValueError, TypeError):
+                pass
         try:
-            return fn(), None
+            found = fn()
         except (JobError, KeyError, ValueError) as e:
             return [], f"{name}: {e}"
+        if cached:
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_text(json.dumps([j.to_dict() for j in found]), encoding="utf-8")
+        return found, None
 
-    with ThreadPoolExecutor(max_workers=8) as pool:  # boards are independent; fetch them in parallel
-        for found, note in pool.map(fetch, sources):
-            jobs.extend(found)
-            if note:
-                notes.append(note)
+    TIMEOUT, old_timeout = 10, TIMEOUT
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:  # boards are independent; fetch them in parallel
+            for found, note in pool.map(fetch, sources):
+                jobs.extend(found)
+                if note:
+                    notes.append(note)
+    finally:
+        TIMEOUT = old_timeout
     terms = [t for t in re.findall(r"[a-z0-9+#.]+", query.lower()) if len(t) > 1]
     out, seen = [], set()
     for j in jobs:

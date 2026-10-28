@@ -1,6 +1,8 @@
 """Who the humans in the room are.
 
-`people.json` lists the room's owner (the candidate) and their mentors by chat username. Only the CLI
+`people.json` lists the room's owner (the candidate) and optional human reviewers (a senior, a friend; stored
+under "mentors" for compatibility) by chat username. The AI Mentor agent is not a person and is not on it.
+Only the CLI
 writes it: there is deliberately no agent tool that can change it. Human-only actions are checked
 against this roster, so an agent can't record a decision for a made-up `human:anyone`.
 """
@@ -49,7 +51,8 @@ class People:
         return _name(actor)
 
     def check_reviewer(self, actor: str) -> tuple[str, str]:
-        """Mentors (or the owner) may review. Returns (name, role)."""
+        """Human reviewers (or the owner) may review. Returns (name, role); role is "mentor" for a
+        registered human reviewer (the stored name) or "owner"."""
         if not actor.lower().startswith("human:"):
             raise PeopleError("reviews come from people: actor='human:<chat username>'")
         n = _name(actor)
@@ -57,10 +60,10 @@ class People:
             return n, "mentor"
         if n in self.owners or not self.configured:
             return n, "owner"
-        raise PeopleError(f"'{n}' isn't a registered mentor. The candidate can add them with "
-                          f"`offerroom people mentor add {n}`")
+        raise PeopleError(f"'{n}' isn't a registered human reviewer. The candidate can add them with "
+                          f"`offerroom people reviewer-add {n}`")
 
     def describe(self) -> str:
         owners = ", ".join(f"@{o}" for o in self.owners) or "not set (run `offerroom people owner <you>`)"
-        mentors = ", ".join(f"@{m}" for m in self.mentors) or "none"
-        return f"Owner: {owners} · Mentors: {mentors} · Mentor review: {self.review}"
+        reviewers = ", ".join(f"@{m}" for m in self.mentors) or "none"
+        return f"Owner: {owners} · Human reviewers: {reviewers} · Human review: {self.review}"

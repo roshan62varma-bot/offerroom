@@ -255,21 +255,58 @@ def test_mentor_review_gate(room):
     _people(room)
     room.profile_approve("human:aanya")
     room.render("1")
-    with pytest.raises(OfferRoomError, match="mentor review is required"):
+    with pytest.raises(OfferRoomError, match="human review is required"):
         room.set_status("1", "approved", "human:aanya", "approve #1")
-    with pytest.raises(OfferRoomError, match="registered mentor"):
+    with pytest.raises(OfferRoomError, match="registered human reviewer"):
         room.review_add("1", "human:random", "approve")
     room.review_add("1", "human:priya", "changes", "lead with QueueLess")
-    with pytest.raises(OfferRoomError, match="mentor review"):
+    with pytest.raises(OfferRoomError, match="human review"):
         room.set_status("1", "approved", "human:aanya")  # 'changes' isn't an approval
     room.review_add("1", "human:priya", "approve", "ship it")
     assert room.set_status("1", "approved", "human:aanya")["application"]["status"] == "approved"
     # a fresh render needs a fresh review
     room.render("1")
-    with pytest.raises(OfferRoomError, match="mentor review"):
+    with pytest.raises(OfferRoomError, match="human review"):
         room.set_status("1", "approved", "human:aanya")
     assert room.set_status("1", "approved", "human:aanya", "approve #1 override")["application"]["status"] == "approved"
     assert [r["verdict"] for r in room.store.reviews(1)] == ["changes", "approve"]
+
+
+# ---------------------------------------------------------------- AI Mentor --
+
+def test_mentor_guidance_reaches_agents_and_board(room):
+    room.guidance_set("@scout", "Bengaluru or India-remote only; skip US-only remote roles")
+    assert "Bengaluru" in room.guidance_get("scout")["current"]
+    assert "Mentor's standing guidance" in room.board()["markdown"] and "@scout" in room.board()["markdown"]
+    room.guidance_set("scout", "clear")
+    assert room.guidance_get("scout")["current"] == ""
+    with pytest.raises(OfferRoomError):
+        room.guidance_set("mentor", "guide yourself")  # the Mentor directs the other four
+
+
+def test_mentor_sign_off_is_advice_not_a_human_review(room):
+    _people(room)  # human review required, priya registered
+    room.profile_approve("human:aanya")
+    room.render("1")
+    msg = room.mentor_review("1", "ready", "Strong backend story; PaperTrail can go.")["message"]
+    assert "decision is yours" in msg and "🧭" in room.board()["markdown"]
+    with pytest.raises(OfferRoomError, match="human review"):
+        room.set_status("1", "approved", "human:aanya")  # the AI sign-off doesn't open the human gate
+    with pytest.raises(OfferRoomError, match="human"):
+        room.set_status("1", "approved", "agent:mentor")
+    assert room.store.reviews(1)[-1]["role"] == "ai-mentor"
+
+
+def test_mentor_brief_sees_the_whole_hunt(room):
+    room.profile_approve("human:aanya")
+    room.render("1")
+    s = room.interview_start("1", 3)
+    room.interview_answer(s["session_id"], "q1", "I like code.")
+    b = room.mentor_brief()
+    assert b["waiting_on_candidate"] == [1]
+    assert {g["skill"] for g in b["top_gaps"]} & {"CI/CD", "TypeScript", "Kubernetes"}
+    assert b["interview_average"] is not None and b["interview_weakest"]
+    assert "Mentor brief" in b["message"]
 
 
 def test_board_document(room):

@@ -5,7 +5,8 @@ without ever inventing anything.
 
 @ROOM_PROTOCOL.md
 
-## Tailoring (asked by the candidate or by `@scout`: "tailor #N")
+## Tailoring (asked by the candidate, `@scout` or `@mentor`: "tailor #N")
+0. `guidance` for "tailor": follow the Mentor's standing guidance (e.g. which project to lead with).
 1. `resume_draft` for `#N`. You get a draft JSON plus every original bullet.
 2. Improve the draft:
    - Rephrase bullets to use the job's wording where it is *true*: e.g. "REST endpoints" becomes
@@ -24,16 +25,14 @@ without ever inventing anything.
 - Apply each fix you can make **honestly**: strong verbs, shorter bullets, surface skills the profile
   already has. A fix that needs a number: ask the candidate ("Do you have a real number for …?") and don't
   guess. Verify, render, and attach the new PDF. Say in one line what changed.
-- This is the last automatic round. Don't ask `@interviewer` again.
-- Then bring in the humans. Check `people_show`:
-  - **Mentors registered:** "@<mentor> could you review #N? Reply `@tracker review #N approve` or
-    `@tracker review #N changes: <what to change>`."
-  - **Always:** "Candidate: happy with it? Reply `@tracker approve #N`, or tell me what to change."
-  - Put the cover note in a thread reply.
+- If a fix can't be applied honestly and the Interviewer insists, escalate: "@mentor decide: …".
+- This is the last critique round. Don't ask `@interviewer` again.
+- Then hand off for sign-off: "@mentor please sign off #N" (with the handoff block). Put the cover note
+  in a thread reply.
 
-## Requested changes (from the candidate, or a mentor via `@tracker`)
-Redo steps 2–5 with the change, say what changed in one line, and ask the same person to look again.
-`reviews_show` shows every mentor comment for `#N`.
+## Requested changes (from the Mentor, the candidate, or a human reviewer via `@tracker`)
+Redo steps 2–5 with the change, say what changed in one line, and hand back to whoever asked. Changes the
+Mentor asked for go back to `@mentor` for sign-off. `reviews_show` shows every comment for `#N`.
 
 ## Never
 - Approve anything yourself, or tell `@tracker` that someone approved.

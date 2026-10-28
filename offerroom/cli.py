@@ -11,12 +11,13 @@ from pathlib import Path
 
 from .app import OfferRoom, safe
 
-AGENTS = ("scout", "tailor", "interviewer", "tracker")
+AGENTS = ("mentor", "scout", "tailor", "interviewer", "tracker")
 ALL_TOOLS = ("profile_show", "profile_import", "profile_save", "profile_approve", "job_add_url", "job_add_text",
              "jobs_search", "watchlist", "fit_score", "resume_draft", "resume_verify", "resume_render",
              "app_set_status", "app_note", "app_history", "pipeline", "followups_due", "followup_snooze", "digest",
              "interview_start", "interview_answer", "interview_summary", "interview_add_question",
-             "resume_critique", "people_show", "review_add", "reviews_show", "board")
+             "resume_critique", "people_show", "review_add", "reviews_show", "board",
+             "mentor_brief", "mentor_guide", "guidance", "mentor_review")
 
 
 def _print(result: dict, as_json: bool) -> int:
@@ -53,17 +54,22 @@ def cmd_demo(args, room: OfferRoom) -> int:
     print(r["message"], "\n\n--- cover note ---\n" + r["cover_note"])
     step("6. Second opinion: the Interviewer critiques the Tailor's resume")
     print(room.critique("1")["message"])
-    step("7. A mentor is in the room: review is required before the candidate can approve")
+    step("7. The AI Mentor directs the team and signs off (advice, never a decision)")
+    print(room.guidance_set("scout", "Bengaluru or India-remote only; skip US-only remote roles")["message"])
+    print(room.guidance_set("interviewer", "Next mock: push on trade-offs; answers lack a 'why'")["message"])
+    print(room.mentor_review("1", "ready", "Backend story is strong; CI/CD is the one gap to close.")["message"])
+    print("\n" + room.mentor_brief()["message"])
+    step("8. An optional human reviewer: required before the candidate can approve")
     (room.home / "people.json").write_text(json.dumps({"owners": ["demo-user"], "mentors": ["priya"],
                                                        "mentor_review": "required"}), encoding="utf-8")
     print(room.people_show()["message"])
     print(safe(room.set_status)("1", "approved", "human:demo-user", "approve #1")["message"])
     print(safe(room.set_status)("1", "approved", "human:someone-else", "approve #1")["message"])
     print(room.review_add("1", "human:priya", "approve", "Strong backend story. Lead with QueueLess.")["message"])
-    step("8. Candidate approves and applies; Tracker schedules a follow-up")
+    step("9. Candidate approves and applies; Tracker schedules a follow-up")
     print(room.set_status("1", "approved", "human:demo-user", "approve #1")["message"])
     print(room.set_status("1", "applied", "human:demo-user", "applied on their site")["message"])
-    step("9. Mock interview for that role, with a mentor on the panel")
+    step("10. Mock interview for that role, with the reviewer on the panel")
     s = room.interview_start("1", 4)
     print(s["message"])
     print(room.interview_answer(s["session_id"], "q1",
@@ -73,7 +79,7 @@ def cmd_demo(args, room: OfferRoom) -> int:
           coach_notes="clear story; name one trade-off")["message"])
     print(room.interview_add_question(s["session_id"], "Why payments, and what would you build first here?",
                                       "human:priya")["message"])
-    step("10. The pinned board and the weekly digest")
+    step("11. The pinned board (with the Mentor's guidance) and the weekly digest")
     print(room.board()["markdown"], "\n")
     print(room.digest()["message"])
     print(f"\nFiles are in {room.home / 'outputs'}")
@@ -192,7 +198,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("people", help="who may decide (owner) and review (mentors); terminal only")
     p.add_argument("action", nargs="?", default="show",
-                   choices=["show", "owner", "mentor-add", "mentor-remove", "review"])
+                   choices=["show", "owner", "reviewer-add", "reviewer-remove", "mentor-add", "mentor-remove",
+                            "review"])
     p.add_argument("value", nargs="?", help="chat username, or off|optional|required for 'review'")
 
     p = sub.add_parser("profile", help="show / import / approve your profile")
@@ -251,7 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         # that is empty or was made by a previous demo, never in a real workspace
         demo_home = Path(home).resolve()
         marker = demo_home / ".offerroom-demo"
-        if demo_home.exists() and any(demo_home.iterdir()) and not marker.exists():
+        is_default = args.home is None  # ./demo-workspace only ever holds demo data
+        if demo_home.exists() and any(demo_home.iterdir()) and not marker.exists() and not is_default:
             print(f"❌ {demo_home} already has data that isn't from a demo. Pick another --home.", file=sys.stderr)
             return 2
         if demo_home.exists():
@@ -275,9 +283,9 @@ def main(argv: list[str] | None = None) -> int:
         v = (args.value or "").lstrip("@").lower()
         if args.action == "owner":
             ppl.owners = [v]
-        elif args.action == "mentor-add" and v not in ppl.mentors:
+        elif args.action in ("reviewer-add", "mentor-add") and v not in ppl.mentors:
             ppl.mentors.append(v)
-        elif args.action == "mentor-remove":
+        elif args.action in ("reviewer-remove", "mentor-remove"):
             ppl.mentors = [m for m in ppl.mentors if m != v]
         elif args.action == "review":
             if v not in REVIEW_MODES:

@@ -147,7 +147,7 @@ def markdown(f: dict) -> str:
         lines.append(f"❌ Missing (required): {', '.join(f['missing'])}")
     if f["missing_preferred"]:
         lines.append(f"◽ Missing (nice to have): {', '.join(f['missing_preferred'])}")
-    lines.append(f"🧭 {f['role_note']} · 📍 {f['location_note']} · 🎓 {f['level_note']}")
+    lines.append(f"🎯 {f['role_note']} · 📍 {f['location_note']} · 🎓 {f['level_note']}")
     if f["capped_by"]:
         lines.append(f"⛔ Score capped: {'; '.join(f['capped_by'])}")
     for s, where in list(f["evidence"].items())[:4]:

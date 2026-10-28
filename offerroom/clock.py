@@ -1,5 +1,5 @@
 """A tiny Switch agent that keeps the room proactive: it posts '@scout morning run' every morning and
-'@tracker weekly digest' once a week.
+'@mentor weekly plan' once a week.
 
 It uses Switch's agent HTTP API (POST /agents/{agent_id}/message with {room_id, content}, authorized
 with the agent's API key), so it needs no connection or LLM. Configure it with environment variables:
@@ -18,7 +18,8 @@ import time
 import urllib.request
 from datetime import datetime, timedelta
 
-JOBS = {"morning": "@scout morning run", "digest": "@tracker weekly digest"}
+# the weekly slot goes to the AI Mentor: it reads the digest itself, then plans and re-directs the team
+JOBS = {"morning": "@scout morning run", "digest": "@mentor weekly plan"}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 

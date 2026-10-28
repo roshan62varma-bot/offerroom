@@ -36,11 +36,12 @@ turn on **Bypass permissions** for each agent in Switch (step 3); the deny list 
 3. Choose **Run a server on this computer** → wait for "Docker is ready" → **Start**. The first start downloads a few GB.
 4. Go to **Home → Messaging apps** → on the Mattermost row, choose **Sign-in details…** → **Open in Mattermost**.
 
-## 3. Create the four agents
+## 3. Create the five agents
 In **Your Agents**, use the **+** card. Do this once per agent:
 
 | Name | Display name | Directory | Description |
 |---|---|---|---|
+| `mentor` | 🧭 Mentor | `<repo>/agents/mentor` | AI team lead: plans, guides the other agents, signs off |
 | `scout` | 🔎 Scout | `<repo>/agents/scout` | Finds and scores jobs that fit the candidate |
 | `tailor` | ✂️ Tailor | `<repo>/agents/tailor` | Builds honest, tailored one-page resumes |
 | `interviewer` | 🎤 Interviewer | `<repo>/agents/interviewer` | Runs graded mock interviews for a specific role |
@@ -49,7 +50,8 @@ In **Your Agents**, use the **+** card. Do this once per agent:
 - **Agent provider:** Claude Code. **Run location:** This computer.
 - **Agent instructions** (same for all four): `Follow CLAUDE.md in your working directory. You are part of OfferRoom.`
   The full role is in each folder's `CLAUDE.md`, which Claude Code loads automatically.
-- **Settings → Who can talk to your agent:** **Me and my agents**. This lets the agents hand off to each other.
+- **Settings → Who can talk to your agent:** **Me and my agents**. This lets the agents hand off to each other,
+  and lets the 🧭 Mentor direct them.
 - **Optional, in Advanced → Model:** `sonnet` for Scout and Tracker (fast), and `opus` for Tailor and Interviewer (writing quality).
 
 ### ⚠️ If an agent says its folder is empty
@@ -64,7 +66,7 @@ Find `<server>` (e.g. `localhost-65098`) by opening `%USERPROFILE%\.switch\agent
 
 ## 4. One room for all of them
 1. Create a room called **offerroom**.
-2. Add all four agents to it. On each agent's page, use **Add to room**.
+2. Add all five agents to it. On each agent's page, use **Add to room**.
 3. In Mattermost, say hi: `@tracker hello`. An agent session starts on its first mention.
 
 ## 4b. Register the humans (terminal only)
@@ -74,20 +76,28 @@ offerroom --home workspace people owner <your Mattermost username>      # e.g. "
 offerroom --home workspace people                                     # check it
 ```
 
-**Optional: add a mentor** (a senior, friend or placement-cell coordinator):
+**Optional: add a human reviewer** (a senior, friend or placement-cell coordinator). This is a person, not
+the 🧭 Mentor agent:
 1. Create a Mattermost account for them. On a local server: Mattermost → System Console → Users, or invite
    them with a link. Add them to `#offerroom`.
 2. Put them on the roster and choose how strict to be:
    ```bash
-   offerroom --home workspace people mentor-add <their username>
+   offerroom --home workspace people reviewer-add <their username>
    offerroom --home workspace people review required    # or: optional (default), off
    ```
 3. Agents only listen to their owner by default. On **tracker** and **interviewer**, set **Who can talk to
    your agent** to a rule that also allows the mentor (Custom rules, or Anyone on a private local server).
    The roster still decides what the mentor is *allowed* to do.
 
-The mentor then writes `@tracker review #3 approve` or `@tracker review #3 changes: lead with QueueLess`,
+The reviewer then writes `@tracker review #3 approve` or `@tracker review #3 changes: lead with QueueLess`,
 and can join a mock interview with `@interviewer panel question: Why fintech?`.
+
+Creating the reviewer's Mattermost account on a local server, from a terminal:
+```bash
+docker exec <mattermost container> mmctl --local user create --email priya@localhost.local --username priya --password <pw>
+docker exec <mattermost container> mmctl --local team users add switch priya
+docker exec <mattermost container> mmctl --local channel users add switch:offerroom priya
+```
 
 ## 5. First run
 1. `@tracker here's my resume` and attach your PDF. Review the draft, correct anything wrong, then `@tracker approve profile`.

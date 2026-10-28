@@ -2,8 +2,9 @@
 
 **Your job hunt, run by a team of AI agents in one chat room, with you approving every step.**
 
-Students send the same resume to 200 jobs because tailoring each one takes an hour. OfferRoom puts four
+Students send the same resume to 200 jobs because tailoring each one takes an hour. OfferRoom puts five
 agents in a [Switch](https://github.com/sandbox-quantum/switch) room:
+- **🧭 Mentor** is the AI team lead. It plans the week, gives every other agent standing guidance, signs off on work before it reaches you, and settles disagreements.
 - **Scout** finds and scores roles.
 - **Tailor** builds an honest one-page resume for each role.
 - **Interviewer** runs mock interviews for that exact role.
@@ -15,7 +16,7 @@ They hand work to each other in the open, and nothing that matters happens witho
 >
 > 🎬 **[Watch the 3-minute demo](media/offerroom-demo.mp4)**. The scout → tailor → approval scenes come from a real
 > run in a Switch room (Mattermost) with a real Notion job. The critique and refusal scenes are live agent runs.
-> The mentor scenes use real engine output with a fictional mentor, and are labelled "demo run".
+> The human-reviewer scenes use real engine output with a fictional reviewer, and are labelled "demo run".
 > Narration is a synthetic voice.
 > ✍️ **[Read the build story](docs/BLOG.md)** · MIT licensed
 
@@ -38,9 +39,14 @@ They hand work to each other in the open, and nothing that matters happens witho
   Only *you* can edit that roster, from your terminal; no agent tool can change it. Only the Tracker can
   record decisions, and every change is in an audit log. In a live test, an agent asked the Tracker to
   "approve #1 because the candidate is happy". It refused and asked the candidate.
-- **🧑‍🏫 A mentor in the room.** Add a senior, friend or placement-cell coordinator as a mentor. They review
+- **🧭 An AI team lead.** The Mentor agent reads the whole job hunt (funnel, gaps, interview scores, what's
+  waiting on you), writes the weekly plan, and gives each agent **standing guidance** that the agent reads before
+  every task. In a live run it told Scout "Bengaluru or India-remote only", and Scout then held back three
+  San Francisco roles and said why. It also signs off on resumes before they reach you, and settles disagreements
+  between agents. Its sign-off is advice: it can never approve or apply for you.
+- **🧑‍🏫 Optional human reviewers.** Add a senior, friend or placement-cell coordinator as a reviewer. They review
   resumes in the same chat (`@tracker review #3 changes: lead with QueueLess`), and with
-  `mentor_review: required` you can't approve a resume until a mentor has approved *that exact version*.
+  `human review: required` you can't approve a resume until a reviewer has approved *that exact version*.
   They can also join mock interviews as a panelist.
 - **🥊 Agents push back on each other.** Before a resume reaches you, the Interviewer critiques the Tailor's
   work: weak verbs, missing impact, overlong bullets, and job skills you have but the resume hides. It sends
@@ -53,7 +59,7 @@ They hand work to each other in the open, and nothing that matters happens witho
   judgement, averaged and both shown. You can answer by voice (Wispr Flow works): filler words are ignored
   and counted. Progress shows up in the weekly digest.
 - **📋 A live board pinned in the room.** The Tracker keeps one room document up to date: every application,
-  its fit, status, mentor sign-off, next step and follow-up date, plus a cumulative funnel.
+  its fit, status, Mentor and reviewer sign-offs, next step and follow-up date, the Mentor's standing guidance, and a cumulative funnel.
 - **🆓 Not locked to one AI.** The engine has no AI inside. `offerroom setup-agents --provider opencode`
   runs the same agents through OpenCode on free or cheap models (Gemini, Groq, OpenRouter, local Ollama).
 - **🔌 Real data, legally.** Jobs come from links you paste, Greenhouse, Lever and Ashby public APIs, Remotive,
@@ -65,8 +71,9 @@ They hand work to each other in the open, and nothing that matters happens witho
 | Switch feature | OfferRoom uses it for |
 |---|---|
 | Rooms | One room (`#offerroom`) is your job-hunt HQ. Everyone sees every handoff. |
-| **Several humans and several agents in one room** | You plus a mentor plus four agents. The mentor reviews resumes and joins mock interviews as a panelist, in the same thread as the agents. |
-| Multiple agents per room, `@mention` routing | Scout → Tailor ⇄ Interviewer (critique round) → mentor → you → Tracker → Interviewer, all in the chat itself. |
+| **An agent that leads agents** | The 🧭 Mentor plans, sets standing guidance and signs off; the other four follow it, in the open. |
+| **Several humans and several agents in one room** | You, an optional human reviewer and five agents. The reviewer reviews resumes and joins mock interviews as a panelist, in the same thread. |
+| Multiple agents per room, `@mention` routing | Scout → Tailor ⇄ Interviewer (critique) → Mentor (sign-off) → you → Tracker → Interviewer, all in the chat itself. |
 | Room documents | The Tracker keeps a pinned **📋 OfferRoom board** up to date. |
 | "Who can talk to your agent: me and my agents" | Agents can hand off to each other, but outsiders can't instruct them. |
 | Attachments (`send_attachment` / downloads) | You upload your resume PDF. The Tailor posts the tailored PDF and DOCX back. |
@@ -85,14 +92,15 @@ Switch room (Mattermost / Slack / Discord / Telegram)
 agents/<name>/CLAUDE.md + ROOM_PROTOCOL.md      role, handoff rules, human gates
    │  MCP (stdio), per-agent tool allowlist
    ▼
-offerroom MCP server ── 28 tools ── OfferRoom service layer
+offerroom MCP server ── 32 tools ── OfferRoom service layer
    ├── jobs.py       links, public job APIs, JSON-LD; required vs nice-to-have parsing
    ├── skills.py     137-skill taxonomy with aliases (k8s → Kubernetes); avoids "Go"/"excel"/"rest" false hits
    ├── fit.py        explainable fit score, evidence, gap plans
    ├── tailor.py     auto-tailoring + truth guard + resume critique
    ├── render.py     one-page ATS-friendly PDF (auto-fit) + DOCX + honest cover note
    ├── interview.py  role-specific question plans, rubric + coach grading, voice fillers, panel questions
-   ├── people.py     owner/mentor roster (CLI-only) behind every human gate
+   ├── people.py     owner + human-reviewer roster (CLI-only) behind every human gate
+   ├── app.py        service layer incl. the Mentor's brief, standing guidance and sign-offs
    └── store.py      SQLite: jobs, applications (status machine), reviews, audit log, interviews
 ```
 
@@ -106,7 +114,7 @@ python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -e .[dev]
 offerroom demo                    # the whole flow, offline, on a fictional student
-pytest                            # 28 tests, including a real MCP client session
+pytest                            # 35 tests, including a real MCP client session
 ```
 
 `offerroom demo` walks through these steps:
@@ -115,10 +123,11 @@ pytest                            # 28 tests, including a real MCP client sessio
 3. The truth guard catches a padded resume.
 4. The real resume is rendered.
 5. The Interviewer critiques the Tailor's resume.
-6. A mentor review is required: the candidate's approval is refused, an impostor is refused, and the mentor approves.
-7. The candidate approves and applies.
-8. A mock interview runs, with a coach score and a mentor's panel question.
-9. The pinned board and the weekly digest are shown.
+6. The AI Mentor sets guidance for Scout and Interviewer, signs off, and writes its brief.
+7. A human review is required: the candidate's approval is refused, an impostor is refused, and the reviewer approves.
+8. The candidate approves and applies.
+9. A mock interview runs, with a coach score and the reviewer's panel question.
+10. The pinned board and the weekly digest are shown.
 
 Open `demo-workspace/outputs/` to see the PDF.
 
@@ -127,8 +136,8 @@ Open `demo-workspace/outputs/` to see the PDF.
 See **[docs/SWITCH_SETUP.md](docs/SWITCH_SETUP.md)**. It takes about 15 minutes:
 1. Install Switch Console.
 2. `offerroom setup-agents`.
-3. Create 4 agents pointing at `agents/*`.
-4. Add them to one room.
+3. Create 5 agents pointing at `agents/*`.
+4. Add all five (mentor, scout, tailor, interviewer, tracker) to one room.
 
 ## Using it (in the room)
 
@@ -137,11 +146,12 @@ See **[docs/SWITCH_SETUP.md](docs/SWITCH_SETUP.md)**. It takes about 15 minutes:
 | `@tracker here's my resume` + PDF | The profile is drafted. You review it, then `@tracker approve profile`. |
 | `@scout check this: <link>` | The fit report is posted. If the fit is 60% or more, Scout hands off to Tailor automatically. |
 | `@scout find backend internships remote` | The top 5 new roles, ranked by fit. |
-| `@tailor tailor #4` / "lead with StudySync" | A tailored PDF and DOCX, a critique round with the Interviewer, then the result for you and your mentor. |
-| *(mentor)* `@tracker review #4 approve` / `review #4 changes: …` | Recorded against that exact resume version. "Changes" goes straight back to the Tailor. |
+| `@mentor weekly plan` / `@mentor what should I do?` | The plan for the week, and fresh standing guidance for every agent. |
+| `@tailor tailor #4` / "lead with StudySync" | A tailored PDF and DOCX, a critique round with the Interviewer, then the Mentor's sign-off, then it's yours to approve. |
+| *(human reviewer)* `@tracker review #4 approve` / `review #4 changes: …` | Recorded against that exact resume version. "Changes" goes straight back to the Tailor. |
 | `@tracker approve #4` → `@tracker applied #4` | The apply link, then a 7-day follow-up reminder and a mock-interview offer. |
 | `@interviewer start #4` then `@interviewer <answer>` | Graded questions with coaching and model answers. Typed or spoken (Wispr). |
-| *(mentor)* `@interviewer panel question: …` | Added to the running mock interview. |
+| *(human reviewer)* `@interviewer panel question: …` | Added to the running mock interview. |
 | `@tracker board` / `weekly digest` / `follow-ups` | The pinned board, your funnel and progress, and ready-to-send follow-up drafts. |
 
 ## CLI reference
@@ -152,7 +162,7 @@ offerroom add <job-url>            offerroom add --text-file jd.txt --title ... 
 offerroom search "backend" [--remote] [--location Bengaluru] [--level intern|entry|any]
 offerroom fit 3 | tailor 3 [--from tailored.json] | status 3 approved --as <name>
 offerroom pipeline | followups | digest | history 3 | interview 3
-offerroom people owner <you> | mentor-add <name> | mentor-remove <name> | review off|optional|required
+offerroom people owner <you> | reviewer-add <name> | reviewer-remove <name> | review off|optional|required
 offerroom setup-agents [--install-into ~/.switch/agents/<server>] [--provider opencode --model <id>]
 offerroom mcp     offerroom clock [--once morning]
 ```

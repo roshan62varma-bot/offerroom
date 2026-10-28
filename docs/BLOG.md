@@ -26,10 +26,11 @@ A single "AI resume assistant" already exists in a hundred forms. What I wanted 
 |---|---|
 | 🔎 **Scout** | Reads job links and searches public job boards. Scores each role against my profile and explains the score. |
 | ✂️ **Tailor** | Builds a one-page, ATS-friendly resume (PDF + DOCX) and a cover note for one specific role. |
+| 🧭 **Mentor** | The team lead. Plans the week, gives every agent standing guidance, signs off on work, settles disagreements. |
 | 🎤 **Interviewer** | Runs a mock interview built from the job *and* my own projects, and grades each answer. |
 | 📋 **Tracker** | Owns my profile, the application pipeline, approvals, follow-up reminders and a weekly digest. |
 
-And there's me, the fifth member of the room.
+And there's me, the sixth member of the room, and the only one who decides.
 
 ## What it looks like
 
@@ -65,10 +66,10 @@ team chat (Slack, Teams, Discord, Telegram, Mattermost). Three things made it th
 3. **Humans stay in the loop naturally.** Approvals are just chat messages: `@tracker approve #1`. No
    dashboard, no extra app.
 
-## The engine: 28 tools behind an MCP server
+## The engine: 32 tools behind an MCP server
 
 The agents don't do the heavy lifting themselves. They call an **OfferRoom MCP server**: Python, with no
-AI inside, exposing 28 tools.
+AI inside, exposing 32 tools.
 
 - **Job parsing.** It reads Greenhouse, Lever and Ashby postings through their public APIs, plus the
   schema.org `JobPosting` data most career pages embed. It splits *required* from *nice-to-have*.
@@ -123,15 +124,37 @@ Interviewer reviews the Tailor's work as if it were going to interview me on it.
 The Interviewer didn't invent numbers to "fix" the resume. It sent the question back to the Tailor, and
 on to me, the only person who actually knows the answer.
 
-## A mentor in the room
+## An AI Mentor that leads the team
+
+Four agents passing work along is a relay. What made OfferRoom feel like a *team* was adding a fifth
+agent that leads the others: the **🧭 Mentor**.
+
+On Sundays the scheduler posts `@mentor weekly plan`. The Mentor reads the whole job hunt (funnel, skill
+gaps, interview scores, what's waiting on me), posts a five-line plan, and writes **standing guidance**
+for each agent. Every agent reads its guidance before it starts a task. In a live run, the Mentor
+noticed my pipeline was thin and told Scout:
+
+> 🧭 Standing guidance for **@scout**: Find 5+ backend / SWE intern or SDE-1 roles this week, Bengaluru or
+> India-remote only. Skip roles capped by location.
+
+The next morning, Scout found three Notion internships based in San Francisco and **held them back**:
+
+> 🔎 3 new roles, all at Notion in San Francisco. I've left them out because the Mentor's guidance this
+> week is Bengaluru or India-remote only. If you'd still like any, reply `@tailor tailor #N`.
+
+The Mentor also signs off on every resume after the Interviewer's critique, and settles disagreements
+("@mentor decide: …"). What it *can't* do matters just as much: it can't approve or apply for me, and its
+sign-off is recorded as advice, never as a human review.
+
+## Optional human reviewers
 
 This is where Switch really earns its place. A job hunt isn't solo: there's usually a senior, a friend or
-a placement-cell coordinator whose opinion you trust. In OfferRoom they join the same room as a
-**mentor**:
+a placement-cell coordinator whose opinion you trust. In OfferRoom they can join the same room as a
+**human reviewer**:
 
 - They review resumes in chat: `@tracker review #1 changes: lead with QueueLess`. That goes straight back
   to the Tailor.
-- With mentor review set to *required*, I can't approve a resume until a mentor has approved **that
+- With human review set to *required*, I can't approve a resume until a reviewer has approved **that
   exact version**. Re-render it, and it needs a fresh review.
 - They can jump into a mock interview: `@interviewer panel question: Why payments?`
 

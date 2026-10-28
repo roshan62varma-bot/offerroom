@@ -183,6 +183,35 @@ def board() -> dict:
     return safe(room().board)()
 
 
+# -------------------------------------------------------------- mentor --
+
+@mcp.tool()
+def mentor_brief() -> dict:
+    """(Mentor) The state of the whole job hunt: target, funnel, what's waiting on the candidate, good fits
+    nobody tailored, location/field problems, most common skill gaps, interview trend, current guidance."""
+    return safe(room().mentor_brief)()
+
+
+@mcp.tool()
+def mentor_guide(agent: str, guidance: str) -> dict:
+    """(Mentor) Set standing guidance for one agent (scout, tailor, interviewer or tracker), e.g.
+    scout: 'Bengaluru or India-remote only; skip US-only remote roles'. 'clear' removes it."""
+    return safe(room().guidance_set)(agent, guidance)
+
+
+@mcp.tool()
+def guidance(agent: str) -> dict:
+    """Read the AI Mentor's current standing guidance for an agent. Call it with your own name before you start a task."""
+    return safe(room().guidance_get)(agent)
+
+
+@mcp.tool()
+def mentor_review(ref: str, verdict: str, note: str) -> dict:
+    """(Mentor) Sign off on an application's resume ('ready') or send it back ('revise') with a short note.
+    Advice only: it never approves anything and never counts as a human review."""
+    return safe(room().mentor_review)(ref, verdict, note)
+
+
 # ------------------------------------------------------------- tracker --
 
 @mcp.tool()

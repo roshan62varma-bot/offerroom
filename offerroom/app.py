@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from . import interview as iv
 from . import jobs as jb
 from . import profile as pr
 from . import render as rd
+from . import skills as sk
 from . import tailor as tl
 from .people import People, PeopleError
 from .store import HUMAN_ONLY, STATUSES, Store, TrackerError
@@ -267,7 +269,7 @@ class OfferRoom:
         ok = [r for r in self.store.reviews(app_id) if r["role"] == "mentor" and r["verdict"] == "approve"
               and r["at"] >= since]
         if not ok and "override" not in note.lower():
-            raise OfferRoomError(f"mentor review is required before approving #{app_id}: ask "
+            raise OfferRoomError(f"human review is required before approving #{app_id}: ask "
                                  f"{', '.join('@' + m for m in p.mentors)} to review it, or reply "
                                  f"`@tracker approve #{app_id} override` to skip the review this time")
 
@@ -284,12 +286,13 @@ class OfferRoom:
             raise OfferRoomError(f"#{app_id} has no resume to review yet")
         self.store.add_review(app_id, name, role, verdict, comment)
         self.store.log(app_id, f"human:{name}", f"review_{verdict}", comment[:200])
+        label = "reviewer" if role == "mentor" else role
         if verdict == "approve":
-            msg = f"🧑‍🏫 @{name} ({role}) approved the resume for #{app_id}." + \
+            msg = f"🧑‍🏫 @{name} ({label}) approved the resume for #{app_id}." + \
                   (f" \"{comment}\"" if comment else "") + \
                   f"\nCandidate: reply `@tracker approve #{app_id}` when you're ready to apply."
         else:
-            msg = f"🧑‍🏫 @{name} ({role}) asked for changes on #{app_id}: \"{comment}\""
+            msg = f"🧑‍🏫 @{name} ({label}) asked for changes on #{app_id}: \"{comment}\""
         return {"review": {"reviewer": name, "role": role, "verdict": verdict, "comment": comment}, "message": msg}
 
     def reviews_show(self, ref: str | int) -> dict:
@@ -310,18 +313,136 @@ class OfferRoom:
         rows = ["| # | Role | Company | Fit | Status | Next step | Follow-up |", "|---|---|---|---|---|---|---|"]
         for a in sorted(apps, key=lambda x: (order.get(x["status"], 99), -(x["fit_score"] or 0))):
             reviews = self.store.reviews(a["id"])
-            status = a["status"] + (" ✅ mentor" if any(r["verdict"] == "approve" and r["role"] == "mentor"
-                                                       for r in reviews) else "")
+            status = a["status"]
+            if any(r["verdict"] == "approve" and r["role"] == "ai-mentor" for r in reviews):
+                status += " 🧭"
+            if any(r["verdict"] == "approve" and r["role"] == "mentor" for r in reviews):
+                status += " ✅ reviewer"
             fu = (a.get("followup_at") or "")[:10] if a["status"] == "applied" else ""
             rows.append(f"| {a['id']} | {a['title']} | {a['company']} | {a['fit_score'] or '?'}% | {status} | "
                         f"{nxt.get(a['status'], '')} | {fu} |")
         stages = ("found", "tailored", "approved", "applied", "interviewing", "offer")
         reached = self.store.reached(stages)  # how many applications ever got to each stage
         funnel = " → ".join(f"{s} {reached[s]}" for s in stages)
+        guidance = self._guidance()
+        standing = [f"- **@{agent}**: {g[-1]['text']}" for agent, g in guidance.items() if g]
         doc = "\n".join([f"# 📋 OfferRoom board", f"_Updated {datetime.now():%d %b %Y, %H:%M} by @tracker_", "",
                          f"**Funnel:** {funnel}", "", *(rows if apps else ["Nothing yet. Paste a job link to @scout."]),
-                         "", f"👥 {self.people.describe()}"])
+                         *(["", "**🧭 Mentor's standing guidance**", *standing] if standing else []),
+                         "", f"👥 {self.people.describe()} · 🧭 = signed off by the AI Mentor"])
         return {"title": "📋 OfferRoom board", "markdown": doc, "message": doc}
+
+    # ------------------------------------------------------------ mentor --
+    # The AI Mentor is the team lead: it plans, gives standing guidance to the other agents, and signs off
+    # on work before it reaches the candidate. It is an agent, so its sign-off never counts as a human decision.
+    AGENT_NAMES = ("scout", "tailor", "interviewer", "tracker")
+
+    def _guidance_path(self) -> Path:
+        return self.home / "guidance.json"
+
+    def _guidance(self) -> dict[str, list[dict]]:
+        p = self._guidance_path()
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+    def guidance_set(self, agent: str, text: str) -> dict:
+        agent = agent.lstrip("@").lower()
+        if agent not in self.AGENT_NAMES:
+            raise OfferRoomError(f"guidance is for {', '.join('@' + a for a in self.AGENT_NAMES)}")
+        g = self._guidance()
+        history = g.setdefault(agent, [])
+        if text.strip().lower() in ("", "clear", "none"):
+            history.clear()
+            msg = f"🧭 Standing guidance for @{agent} cleared."
+        else:
+            history.append({"text": text.strip(), "at": datetime.now().isoformat(timespec="seconds")})
+            del history[:-5]  # keep the last few
+            msg = f"🧭 Standing guidance for **@{agent}**: {text.strip()}"
+        self._guidance_path().write_text(json.dumps(g, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.store.log(None, "agent:mentor", "guidance", f"@{agent}: {text.strip()[:180]}")
+        return {"agent": agent, "guidance": history, "message": msg}
+
+    def guidance_get(self, agent: str) -> dict:
+        agent = agent.lstrip("@").lower()
+        history = self._guidance().get(agent, [])
+        current = history[-1]["text"] if history else ""
+        return {"agent": agent, "current": current, "history": history,
+                "message": f"🧭 Mentor's guidance for @{agent}: {current}" if current
+                else f"No standing guidance for @{agent}."}
+
+    def mentor_review(self, ref: str | int, verdict: str, note: str) -> dict:
+        """The AI Mentor's sign-off ('ready') or redirect ('revise'). Recorded and shown on the board, but
+        it is advice: it never satisfies the human review gate and never approves anything."""
+        app_id = self._app_id(ref)
+        if verdict not in ("ready", "revise"):
+            raise OfferRoomError("verdict must be 'ready' or 'revise'")
+        a = self.store.app(app_id)
+        if not a.get("resume_pdf"):
+            raise OfferRoomError(f"#{app_id} has no resume yet")
+        self.store.add_review(app_id, "mentor", "ai-mentor", "approve" if verdict == "ready" else "changes", note)
+        self.store.log(app_id, "agent:mentor", f"mentor_{verdict}", note[:200])
+        if verdict == "ready":
+            msg = (f"🧭 **Mentor sign-off on #{app_id}** ({a['title']} at {a['company']}): {note}\n"
+                   f"Candidate: the decision is yours. Reply `@tracker approve #{app_id}` when you're happy.")
+        else:
+            msg = f"🧭 **Mentor: #{app_id} needs another pass.** {note}"
+        return {"verdict": verdict, "message": msg}
+
+    def mentor_brief(self) -> dict:
+        """Everything the Mentor needs to plan the week and direct the team, in one place."""
+        p = self.profile()
+        prefs = p.get("preferences", {})
+        apps = self.store.apps()
+        active = [a for a in apps if a["status"] not in ("rejected", "withdrawn")]
+        now = datetime.now()
+
+        def age(a) -> int:
+            return (now - datetime.fromisoformat(a["updated_at"])).days
+
+        waiting = [a for a in apps if a["status"] == "tailored"]
+        to_apply = [a for a in apps if a["status"] == "approved"]
+        untouched = [a for a in apps if a["status"] == "found" and (a["fit_score"] or 0) >= 60]
+        far = [a for a in active if a.get("fit") and a["fit"].get("capped_by")]
+        gaps = Counter(s for a in active if a.get("fit") for s in a["fit"].get("missing", []))
+        answers = [x for s in self._all_interviews() for x in s["answers"]]
+        dims: dict[str, list[float]] = {}
+        for x in answers:
+            for k, v in x["feedback"]["rubric"].items():
+                dims.setdefault(k, []).append(v)
+        weakest = min(dims, key=lambda k: sum(dims[k]) / len(dims[k])) if dims else None
+        avg = round(sum(x["score"] for x in answers) / len(answers), 1) if answers else None
+        due = self.store.due_followups()
+        lines = [f"🧭 **Mentor brief**: {p['name']} · target: {', '.join(prefs.get('roles') or ['any role'])} in "
+                 f"{', '.join(prefs.get('locations') or ['anywhere'])}",
+                 f"Funnel: " + " → ".join(f"{k} {v}" for k, v in self.store.reached(
+                     ("found", "tailored", "approved", "applied", "interviewing", "offer")).items())]
+        if waiting:
+            lines.append("⏳ Waiting on the candidate's approval: " + ", ".join(
+                f"#{a['id']} {a['company']} ({age(a)}d)" for a in waiting))
+        if to_apply:
+            lines.append("📤 Approved but not applied: " + ", ".join(f"#{a['id']} {a['company']}" for a in to_apply))
+        if untouched:
+            lines.append("🔎 Good fits nobody has tailored yet: " + ", ".join(
+                f"#{a['id']} {a['company']} {a['fit_score']}%" for a in untouched))
+        if far:
+            lines.append(f"📍 {len(far)} role(s) capped by location or field: Scout may need guidance")
+        if gaps:
+            lines.append("🛠️ Most common missing skills: " + ", ".join(f"{s} ({n}×)" for s, n in gaps.most_common(3)))
+        if answers:
+            lines.append(f"🎤 Interview average {avg}/5 over {len(answers)} answers; weakest: {weakest}")
+        if due:
+            lines.append(f"⏰ {len(due)} follow-up(s) due")
+        current = {a: (self._guidance().get(a) or [{}])[-1].get("text", "") for a in self.AGENT_NAMES}
+        lines.append("Current guidance: " + "; ".join(f"@{a}: {t or '-'}" for a, t in current.items()))
+        return {"target": {"roles": prefs.get("roles"), "locations": prefs.get("locations")},
+                "waiting_on_candidate": [a["id"] for a in waiting], "approved_not_applied": [a["id"] for a in to_apply],
+                "untailored_good_fits": [a["id"] for a in untouched], "location_or_field_capped": len(far),
+                "top_gaps": [{"skill": s, "count": n, "plan": sk.gap_project(s)} for s, n in gaps.most_common(3)],
+                "interview_average": avg, "interview_weakest": weakest, "followups_due": len(due),
+                "guidance": current, "message": "\n".join(lines)}
+
+    def _all_interviews(self) -> list[dict]:
+        ids = [r[0] for r in self.store.db.execute("select id from interviews")]
+        return [self.store.interview(i) for i in ids]
 
     # ---------------------------------------------------------- tracker --
     def set_status(self, ref: str | int, status: str, actor: str, note: str = "") -> dict:

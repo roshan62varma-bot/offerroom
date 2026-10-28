@@ -227,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for name in ("fit", "history", "followup"):
         sub.add_parser(name).add_argument("ref")
+    sub.add_parser("resume", help="render a general one-page resume from your profile (no job needed)")
     p = sub.add_parser("tailor", help="render a tailored resume for an application/job")
     p.add_argument("ref")
     p.add_argument("--from", dest="tailored", help="your own tailored JSON file")
@@ -323,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "tailor":
         t = Path(args.tailored).read_text(encoding="utf-8-sig") if args.tailored else None
         return _print(safe(room.render)(args.ref, t, who), args.json)
+    if args.cmd == "resume":
+        return _print(safe(room.render_general)(), args.json)
     if args.cmd == "status":
         return _print(safe(room.set_status)(args.ref, args.status, who, args.note), args.json)
     if args.cmd == "history":

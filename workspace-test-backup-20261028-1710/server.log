@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "C:\Users\Dell\OneDrive\Documents\fliptoswitch\offerroom\server.py", line 29, in run
+    return inner(*args, **kwargs)
+  File "C:\Users\Dell\OneDrive\Documents\fliptoswitch\offerroom\app.py", line 353, in run
+    return fn(*args, **kwargs)
+  File "C:\Users\Dell\OneDrive\Documents\fliptoswitch\offerroom\app.py", line 105, in profile_approve
+    self.store.log(None, actor, "profile_approved", note)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dell\OneDrive\Documents\fliptoswitch\offerroom\store.py", line 168, in log
+    self.db.execute("insert into events (app_id, at, actor, action, detail) values (?,?,?,?,?)",
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    (app_id, now(), actor, action, detail))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread. The object was created in thread id 25000 and this is thread id 3852.
+

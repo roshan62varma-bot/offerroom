@@ -1,0 +1,56 @@
+{
+  "job_id": "4f02e1a3e0",
+  "headline": "Backend-leaning full-stack developer \u00b7 final-year CS",
+  "summary": "B.Tech Computer Science student at Example Institute of Technology, Bengaluru, working with Python, SQL, REST APIs. Built QueueLess with Python, FastAPI, Redis.",
+  "skills": [
+    "Python",
+    "SQL",
+    "REST APIs",
+    "Docker",
+    "Git",
+    "Java",
+    "JavaScript",
+    "FastAPI",
+    "Flask",
+    "React",
+    "Node.js",
+    "PostgreSQL",
+    "MongoDB",
+    "Redis",
+    "Linux",
+    "Data Structures"
+  ],
+  "experience": [
+    {
+      "id": "exp-1",
+      "bullets": [
+        "Built a Flask + PostgreSQL portal used by 1,200 students to register for placement drives",
+        "Cut report generation time from 40 minutes to 3 minutes by moving Excel exports to SQL queries",
+        "Wrote unit tests with Pytest for the eligibility rules engine"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj-1",
+      "bullets": [
+        "Built a FastAPI service that issues virtual tokens for canteen queues, with Redis for live queue state",
+        "Containerized the API and Redis with Docker Compose for one-command local setup",
+        "Handled 300 concurrent users in a load test with Locust after adding connection pooling"
+      ]
+    },
+    {
+      "id": "proj-2",
+      "bullets": [
+        "Based on React + Node.js app where study groups share notes and schedule sessions",
+        "Designed MongoDB schemas for groups, notes and invites with role-based access",
+        "Added real-time updates with WebSockets so new notes appear instantly"
+      ]
+    }
+  ],
+  "achievements": [
+    "Organized a 3-day Git and open-source workshop for 80 juniors",
+    "Top 10 of 240 teams at Smart India Hackathon internal round 2024",
+    "Solved 350+ problems on LeetCode"
+  ]
+}

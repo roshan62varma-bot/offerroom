@@ -114,7 +114,8 @@ def _build_pdf(doc: dict, fs: float):
         pdf.set_font("Helvetica", "I", fs - 0.5)
         rest = _latin1(left_rest)
         while rest and pdf.get_string_width(rest) > W - rw - lw - 2:
-            rest = rest[:-2]
+            # drop whole items ("Next.js, React" -> "Next.js") rather than cutting a word in half
+            rest = rest.rsplit(", ", 1)[0] if ", " in rest else rest[:-2]
         pdf.cell(W - rw - lw - 0.5, lh + 0.6, rest)
         pdf.set_font("Helvetica", "", fs - 0.5)
         pdf.cell(rw, lh + 0.6, _latin1(right), align="R", **NL)

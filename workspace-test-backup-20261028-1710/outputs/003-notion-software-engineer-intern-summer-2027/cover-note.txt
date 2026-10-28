@@ -1,0 +1,7 @@
+Dear Notion hiring team,
+
+I'm Aanya Rao, a B.Tech Computer Science student at Example Institute of Technology, Bengaluru, and I'd like to apply for the Software Engineer Intern (Summer 2027) role. Most relevant to this role is QueueLess (Python, FastAPI, Redis): built a FastAPI service that issues virtual tokens for canteen queues, with Redis for live queue state. I've worked hands-on with Node.js, LLMs, which this role asks for. I haven't used Machine Learning in a project yet, and I'm learning it now. I'd love to bring the same care to Notion.
+
+Thank you for your time,
+Aanya Rao
+aanya.rao.dev@example.com · +91 90000 00000

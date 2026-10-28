@@ -1,0 +1,63 @@
+{
+  "job_id": "4bb5e53d1f",
+  "headline": "Backend-leaning full-stack developer \u00b7 final-year CS",
+  "summary": "Final-year B.Tech Computer Science student at Example Institute of Technology, Bengaluru, focused on backend APIs with Python, Node.js and SQL. Built a FastAPI queue service load-tested at 300 concurrent users and a placement portal used by 1,200 students.",
+  "skills": [
+    "Node.js",
+    "Python",
+    "FastAPI",
+    "Flask",
+    "SQL",
+    "PostgreSQL",
+    "Redis",
+    "MongoDB",
+    "Docker",
+    "React",
+    "JavaScript",
+    "LLMs",
+    "Java",
+    "Git",
+    "Linux",
+    "Data Structures"
+  ],
+  "experience": [
+    {
+      "id": "exp-1",
+      "bullets": [
+        "Built a Flask + PostgreSQL portal used by 1,200 students to register for placement drives",
+        "Cut report generation time from 40 minutes to 3 minutes by moving Excel exports to SQL queries",
+        "Wrote unit tests with Pytest for the eligibility rules engine"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj-1",
+      "bullets": [
+        "Built a FastAPI service that issues virtual tokens for canteen queues, with Redis for live queue state",
+        "Handled 300 concurrent users in a load test with Locust after adding connection pooling",
+        "Containerized the API and Redis with Docker Compose for one-command local setup"
+      ]
+    },
+    {
+      "id": "proj-2",
+      "bullets": [
+        "Built a React + Node.js app where study groups share notes and schedule sessions",
+        "Designed MongoDB schemas for groups, notes and invites with role-based access",
+        "Added real-time updates with WebSockets so new notes appear instantly"
+      ]
+    },
+    {
+      "id": "proj-3",
+      "bullets": [
+        "Built a RAG chatbot that answers questions over 50 past exam papers with source citations",
+        "Evaluated answer accuracy on 40 hand-written questions and fixed retrieval misses"
+      ]
+    }
+  ],
+  "achievements": [
+    "Top 10 of 240 teams at Smart India Hackathon internal round 2024",
+    "Organized a 3-day Git and open-source workshop for 80 juniors",
+    "Solved 350+ problems on LeetCode"
+  ]
+}

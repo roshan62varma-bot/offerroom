@@ -1,0 +1,7 @@
+Dear Lumen Labs hiring team,
+
+I'm Aanya Rao, a B.Tech Computer Science student at Example Institute of Technology, Bengaluru, and I'd like to apply for the Platform Intern role. Most relevant to this role is QueueLess (Python, FastAPI, Redis): built a FastAPI service that issues virtual tokens for canteen queues, with Redis for live queue state. I've worked hands-on with Python, SQL, REST APIs, Docker, which this role asks for. I'd love to bring the same care to Lumen Labs.
+
+Thank you for your time,
+Aanya Rao
+aanya.rao.dev@example.com · +91 90000 00000

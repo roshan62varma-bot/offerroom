@@ -1,0 +1,7 @@
+Dear Notion hiring team,
+
+I'm Aanya Rao, a B.Tech Computer Science student at Example Institute of Technology, Bengaluru, and I'd like to apply for the Software Engineer, Early Career (AI) role. Most relevant to this role is PaperTrail (Python, LLMs, RAG): built a RAG chatbot that answers questions over 50 past exam papers with source citations. I've worked hands-on with LLMs, Unit Testing, Data Structures, which this role asks for. I haven't used Algorithms in a project yet, and I'm learning it now. I'd love to bring the same care to Notion.
+
+Thank you for your time,
+Aanya Rao
+aanya.rao.dev@example.com · +91 90000 00000

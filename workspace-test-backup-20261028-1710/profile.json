@@ -1,0 +1,142 @@
+{
+  "name": "Aanya Rao",
+  "email": "aanya.rao.dev@example.com",
+  "phone": "+91 90000 00000",
+  "location": "Bengaluru, India",
+  "links": {
+    "github": "https://github.com/aanya-rao-example",
+    "linkedin": "https://linkedin.com/in/aanya-rao-example"
+  },
+  "headline": "Backend-leaning full-stack developer · final-year CS",
+  "summary": "Final-year CS student who likes building APIs and shipping small products end to end.",
+  "education": [
+    {
+      "school": "Example Institute of Technology, Bengaluru",
+      "degree": "B.Tech",
+      "field": "Computer Science",
+      "start": "Aug 2022",
+      "end": "May 2026",
+      "grade": "8.6/10",
+      "coursework": [
+        "Data Structures",
+        "DBMS",
+        "Operating Systems",
+        "Computer Networks"
+      ],
+      "id": "edu-1",
+      "bullets": []
+    }
+  ],
+  "experience": [
+    {
+      "company": "Campus Placement Cell",
+      "role": "Student Developer (part-time)",
+      "start": "Jan 2025",
+      "end": "Jun 2025",
+      "bullets": [
+        "Built a Flask + PostgreSQL portal used by 1,200 students to register for placement drives",
+        "Cut report generation time from 40 minutes to 3 minutes by moving Excel exports to SQL queries",
+        "Wrote unit tests with Pytest for the eligibility rules engine"
+      ],
+      "id": "exp-1"
+    }
+  ],
+  "projects": [
+    {
+      "name": "QueueLess",
+      "tech": [
+        "Python",
+        "FastAPI",
+        "Redis",
+        "Docker"
+      ],
+      "link": "https://github.com/aanya-rao-example/queueless",
+      "bullets": [
+        "Built a FastAPI service that issues virtual tokens for canteen queues, with Redis for live queue state",
+        "Containerized the API and Redis with Docker Compose for one-command local setup",
+        "Handled 300 concurrent users in a load test with Locust after adding connection pooling"
+      ],
+      "id": "proj-1"
+    },
+    {
+      "name": "StudySync",
+      "tech": [
+        "React",
+        "Node.js",
+        "MongoDB"
+      ],
+      "link": "https://github.com/aanya-rao-example/studysync",
+      "bullets": [
+        "Built a React + Node.js app where study groups share notes and schedule sessions",
+        "Designed MongoDB schemas for groups, notes and invites with role-based access",
+        "Added real-time updates with WebSockets so new notes appear instantly"
+      ],
+      "id": "proj-2"
+    },
+    {
+      "name": "PaperTrail",
+      "tech": [
+        "Python",
+        "LLMs",
+        "RAG"
+      ],
+      "link": "https://github.com/aanya-rao-example/papertrail",
+      "bullets": [
+        "Built a RAG chatbot that answers questions over 50 past exam papers with source citations",
+        "Evaluated answer accuracy on 40 hand-written questions and fixed retrieval misses"
+      ],
+      "id": "proj-3"
+    },
+    {
+      "name": "Pixel Pets",
+      "tech": [
+        "JavaScript",
+        "HTML",
+        "CSS"
+      ],
+      "bullets": [
+        "Made a browser game with sprite animation and local high scores"
+      ],
+      "id": "proj-4"
+    }
+  ],
+  "skills": [
+    "Python",
+    "Java",
+    "JavaScript",
+    "SQL",
+    "FastAPI",
+    "Flask",
+    "React",
+    "Node.js",
+    "PostgreSQL",
+    "MongoDB",
+    "Redis",
+    "Docker",
+    "Git",
+    "Linux",
+    "Data Structures",
+    "REST APIs",
+    "Pytest"
+  ],
+  "achievements": [
+    "Top 10 of 240 teams at Smart India Hackathon internal round 2024",
+    "Solved 350+ problems on LeetCode",
+    "Organized a 3-day Git and open-source workshop for 80 juniors"
+  ],
+  "certifications": [],
+  "preferences": {
+    "roles": [
+      "backend intern",
+      "software engineer intern",
+      "SDE-1"
+    ],
+    "locations": [
+      "Bengaluru",
+      "Remote"
+    ],
+    "remote_ok": true,
+    "level": "intern"
+  },
+  "approved": true
+}

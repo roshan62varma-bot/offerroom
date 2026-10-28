@@ -444,6 +444,25 @@ class OfferRoom:
         ids = [r[0] for r in self.store.db.execute("select id from interviews")]
         return [self.store.interview(i) for i in ids]
 
+    def render_general(self, max_projects: int = 4) -> dict:
+        """A general-purpose one-page resume (not tied to a job): for careers fairs, LinkedIn, email.
+        Same truth guard and layout; profile order is kept, since there is no job to rank against."""
+        p = self.profile()
+        t = {"headline": p.get("headline", ""), "summary": p.get("summary", ""), "skills": p["skills"],
+             "experience": [{"id": e["id"], "bullets": e["bullets"]} for e in p["experience"]],
+             "projects": [{"id": e["id"], "bullets": e["bullets"]} for e in p["projects"][:max_projects]],
+             "achievements": p["achievements"]}
+        check = self.verify(t)
+        if not check["ok"]:
+            return {"ok": False, **check}
+        out = self.home / "outputs" / "general"
+        doc = rd.resume_doc(p, t)
+        pdf = rd.render_pdf(doc, out / "resume.pdf")
+        docx = rd.render_docx(doc, out / "resume.docx")
+        trimmed = "".join(f"\n- Trimmed to fit one page: {x}" for x in pdf["trimmed"])
+        return {"ok": True, "pdf": pdf["path"], "docx": docx,
+                "message": f"📄 General resume (not tailored to a job){trimmed}\nFiles: `{pdf['path']}` · `{docx}`"}
+
     # ---------------------------------------------------------- tracker --
     def set_status(self, ref: str | int, status: str, actor: str, note: str = "") -> dict:
         app_id = self._app_id(ref)

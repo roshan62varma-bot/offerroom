@@ -1,0 +1,50 @@
+{
+  "scout": [
+    {
+      "text": "Pipeline is thin (1 role). Find 5+ backend / SWE intern or SDE-1 roles this week, Bengaluru or India-remote only. Skip roles capped by location. Prioritise fits of 70% or more.",
+      "at": "2026-10-28T11:17:50"
+    },
+    {
+      "text": "Pipeline has 4 roles, 3 of them at Notion. Find 5+ more backend / SWE intern or SDE-1 roles at other companies this week, Bengaluru or India-remote only. Skip roles capped by location. Prioritise fits of 70% or more, and roles that don't list Machine Learning as a must-have.",
+      "at": "2026-10-28T13:09:03"
+    },
+    {
+      "text": "Bengaluru or India-remote only; prioritise backend internships and roles with 75%+ fit.",
+      "at": "2026-10-28T14:19:52"
+    }
+  ],
+  "interviewer": [
+    {
+      "text": "No mocks yet. Run a baseline backend mock this week: one DSA problem (talk through approach + complexity), one system/API design question, one STAR behavioural. Report the weakest area.",
+      "at": "2026-10-28T11:17:51"
+    },
+    {
+      "text": "Focus the next mock on structure (STAR) and Redis queue state for backend.",
+      "at": "2026-10-28T14:19:52"
+    }
+  ],
+  "tracker": [
+    {
+      "text": "Watch the one applied role and nudge the candidate when its follow-up comes due. Flag any new fit of 70% or more that hasn't been tailored within 2 days.",
+      "at": "2026-10-28T11:17:52"
+    },
+    {
+      "text": "Watch the one applied role and nudge the candidate when its follow-up comes due. #3 and #2 (75%) are untailored; flag them if still untailored by Friday. Don't nudge on #4 (67%) unless the candidate asks.",
+      "at": "2026-10-28T13:09:05"
+    },
+    {
+      "text": "Nudge the candidate on applied roles when due; track approved/applied statuses.",
+      "at": "2026-10-28T14:19:52"
+    }
+  ],
+  "tailor": [
+    {
+      "text": "Tailor #3 first, then #2 (both Notion, 75%). Lead with backend/API work from the profile. Machine Learning is a real gap: don't imply ML experience; leave it out unless the candidate adds a real project.",
+      "at": "2026-10-28T13:09:04"
+    },
+    {
+      "text": "Tailor #6 (Lumen Labs, 95%) next. Lead with backend/API work from the profile. Machine Learning is a real gap: leave it out unless candidate adds a real project.",
+      "at": "2026-10-28T14:19:52"
+    }
+  ]
+}

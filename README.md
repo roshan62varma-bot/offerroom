@@ -60,8 +60,10 @@ They hand work to each other in the open, and nothing that matters happens witho
   and counted. Progress shows up in the weekly digest.
 - **📋 A live board pinned in the room.** The Tracker keeps one room document up to date: every application,
   its fit, status, Mentor and reviewer sign-offs, next step and follow-up date, the Mentor's standing guidance, and a cumulative funnel.
-- **🆓 Not locked to one AI.** The engine has no AI inside. `offerroom setup-agents --provider opencode`
-  runs the same agents through OpenCode on free or cheap models (Gemini, Groq, OpenRouter, local Ollama).
+- **🆓 Runs on a free model.** The engine has no AI inside. `offerroom setup-agents --provider opencode
+  --model google/gemini-flash-lite-latest` runs the same five agents through OpenCode on Gemini's free tier.
+  Live runs confirmed that Scout, Tailor and Tracker do their jobs on it, including refusing a fake approval.
+  Groq, OpenRouter and a local Ollama model work the same way.
 - **🔌 Real data, legally.** Jobs come from links you paste, Greenhouse, Lever and Ashby public APIs, Remotive,
   Arbeitnow, and schema.org `JobPosting` data on career pages. LinkedIn and Naukri block automated reading, so
   OfferRoom asks you to paste those instead. It never auto-applies.
@@ -114,7 +116,7 @@ python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -e .[dev]
 offerroom demo                    # the whole flow, offline, on a fictional student
-pytest                            # 35 tests, including a real MCP client session
+pytest                            # 36 tests, including a real MCP client session
 ```
 
 `offerroom demo` walks through these steps:

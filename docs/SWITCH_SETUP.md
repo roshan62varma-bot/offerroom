@@ -139,8 +139,21 @@ The engine has no AI inside, so the agents can run on any model OpenCode support
    tool allow/deny rules) into each agent folder.
 3. In Switch Console, set each agent's **Agent provider** to **OpenCode**, then type `!reset-all-agents`.
 
-Model names change often. Use the exact id your provider lists. Smaller models follow the room protocol
-less reliably, so try Scout and Tracker on a free model first.
+Model names change often. Use the exact id your provider lists (`opencode models google`). Smaller
+models follow the room protocol less reliably, so try Scout and Tracker on a free model first.
+
+**Tested setup (Oct 2026): Gemini free tier.** Get a free key at https://aistudio.google.com/apikey and set
+it once as a user environment variable named `GEMINI_API_KEY`. The generated `opencode.json` reads it from
+there with `{env:GEMINI_API_KEY}`, so the key never lands in a file. Then:
+```bash
+offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>" ^
+    --provider opencode --model google/gemini-flash-lite-latest
+```
+With `gemini-flash-lite-latest`, live runs passed for Scout (score + handoff), Tailor (draft → truth guard →
+render → handoff) and Tracker (refused an agent's fake approval). `gemini-flash-latest` writes better but is
+often overloaded on the free tier.
+
+OpenCode's own `opencode/*-free` models need OpenCode 1.18+ and a current key from the OpenCode console.
 
 ## Troubleshooting
 | Symptom | Fix |

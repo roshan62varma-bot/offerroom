@@ -49,6 +49,13 @@ def test_job_sections_split_required_and_preferred():
     assert j.level == "intern"
 
 
+def test_inline_section_headings():
+    j = jb.from_text("Platform Intern at Lumen Labs. Requirements: Python, SQL, REST APIs, Docker, Git. "
+                     "Nice to have: Kubernetes.", "Platform Intern", "Lumen Labs")
+    assert {"Python", "SQL", "REST APIs", "Docker", "Git"} <= set(j.required)
+    assert j.preferred == ["Kubernetes"]
+
+
 def test_job_level_and_years():
     senior = jb.from_text(JOBS[2]["text"], JOBS[2]["title"], "X")
     assert senior.level == "senior" and senior.min_years == 6

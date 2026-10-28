@@ -111,9 +111,19 @@ def _section_of(line: str) -> str | None:
     return None
 
 
+_INLINE_HEADING = re.compile(
+    r"\s*\b(requirements?|qualifications?|must[- ]haves?|nice[- ]to[- ]haves?|preferred(?: qualifications)?|"
+    r"bonus(?: points)?|good[- ]to[- ]haves?|responsibilities|what you(?:'ll)? do)\s*:\s*", re.I)
+
+
+def _split_inline_headings(text: str) -> str:
+    """'Requirements: Python, SQL. Nice to have: Kubernetes.' on one line -> one heading line per section."""
+    return _INLINE_HEADING.sub(lambda m: f"\n{m.group(1)}\n", text)
+
+
 def analyze(job: Job) -> Job:
     """Fill level, min_years, remote and required/preferred skills from the text."""
-    text = job.description
+    text = _split_inline_headings(job.description)
     buckets: dict[str, list[str]] = {"none": [], "required": [], "preferred": [], "resp": [], "skip": []}
     current = "none"
     for line in text.split("\n"):

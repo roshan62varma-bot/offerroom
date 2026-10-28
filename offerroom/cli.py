@@ -120,6 +120,10 @@ def _write_opencode(agent_dir: Path, home: Path, tools: list[str], protocol: Pat
     }
     if model:
         config["model"] = model
+    if (model or "").startswith("google/"):
+        # Switch starts OpenCode with your normal environment; read the Gemini key from GEMINI_API_KEY
+        # (OpenCode's own default variable name differs). The key itself never goes into this file.
+        config["provider"] = {"google": {"options": {"apiKey": "{env:GEMINI_API_KEY}"}}}
     (agent_dir / "opencode.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
 

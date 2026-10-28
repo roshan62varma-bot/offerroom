@@ -3,10 +3,15 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# personal data: your profile, applications and generated resumes
+# personal data: your profile, contact details, applications and generated resumes. Never commit these.
 workspace/
+workspace*/
 demo-workspace/
 agent-test-ws/
+*.pdf
+*.docx
+profile*.json
+!offerroom/samples/profile.json
 
 # local screenshots
 Screenshot*.png

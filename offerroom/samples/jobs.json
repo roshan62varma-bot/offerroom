@@ -1,0 +1,23 @@
+[
+  {
+    "title": "Backend Engineering Intern",
+    "company": "Kestrel Labs",
+    "location": "Bengaluru (Hybrid)",
+    "url": "https://example.com/careers/kestrel/backend-intern",
+    "text": "Backend Engineering Intern\nKestrel Labs builds payment reconciliation tools for small businesses.\nWhat you'll do\n- Build and maintain REST APIs in Python (FastAPI)\n- Write SQL against PostgreSQL and tune slow queries\n- Ship features behind tests in our CI/CD pipeline\nRequirements\n- Strong Python and SQL fundamentals\n- Understanding of REST APIs and data structures\n- Familiarity with Git\nNice to have\n- Docker and Kubernetes experience\n- Exposure to AWS\nPerks\n- Stipend, mentorship, PPO opportunity"
+  },
+  {
+    "title": "Frontend Developer Intern",
+    "company": "Pixelmint",
+    "location": "Remote",
+    "url": "https://example.com/careers/pixelmint/frontend-intern",
+    "text": "Frontend Developer Intern (Remote)\nRequirements\n- React and TypeScript\n- Next.js for server rendering\n- Tailwind CSS\n- Testing with Jest\nNice to have\n- Figma\nAbout us\nWe make design tools for creators."
+  },
+  {
+    "title": "Senior Platform Engineer",
+    "company": "Orbitworks",
+    "location": "Pune",
+    "url": "https://example.com/careers/orbitworks/senior-platform",
+    "text": "Senior Platform Engineer\nRequirements\n- 6+ years of experience running Kubernetes in production\n- Terraform, AWS, Go\n- Prometheus and Grafana\nWhat you'll do\n- Own our multi-region platform"
+  }
+]

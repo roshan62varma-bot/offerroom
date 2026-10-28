@@ -1,0 +1,357 @@
+"""OfferRoom service layer: every capability the agents (MCP) and the CLI use.
+
+Each method returns a dict with a chat-ready `message` plus structured data.
+Rules that keep a human in charge live here, not in prompts:
+  * tailoring needs an approved profile
+  * resumes must pass the truth guard before they are rendered
+  * approved / applied / offer / rejected / withdrawn can only be set by a human actor
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from . import fit as fitmod
+from . import interview as iv
+from . import jobs as jb
+from . import profile as pr
+from . import render as rd
+from . import tailor as tl
+from .store import STATUSES, Store, TrackerError
+
+DEFAULT_WATCHLIST = {"greenhouse": ["razorpaysoftwareprivatelimited", "stripe"], "lever": ["cred"],
+                     "ashby": ["notion", "sarvam"]}
+
+
+class OfferRoomError(ValueError):
+    pass
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:50] or "job"
+
+
+class OfferRoom:
+    def __init__(self, home: str | Path | None = None):
+        self.home = Path(home or os.environ.get("OFFERROOM_HOME") or Path.cwd() / "workspace").resolve()
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.store = Store(self.home / "offerroom.db")
+        self.profile_path = self.home / "profile.json"
+        self.watchlist_path = self.home / "watchlist.json"
+
+    # ---------------------------------------------------------- profile --
+    def profile(self) -> dict:
+        if not self.profile_path.exists():
+            raise OfferRoomError("no profile yet: import a resume (profile_import) or save one (profile_save)")
+        return pr.load(self.profile_path)
+
+    def profile_show(self) -> dict:
+        p = self.profile()
+        msg = [f"**{p['name']}** · {p['email']} · {p.get('location', '')}",
+               f"Education: {', '.join(e.get('school', '') for e in p['education']) or '-'}",
+               f"Projects: {', '.join(e['name'] for e in p['projects']) or '-'}",
+               f"Experience: {', '.join(e.get('role', '') + ' @ ' + e.get('company', '') for e in p['experience']) or '-'}",
+               f"Skills: {', '.join(p['skills'])}",
+               f"Looking for: {', '.join(p['preferences'].get('roles') or ['any'])} in "
+               f"{', '.join(p['preferences'].get('locations') or ['anywhere'])}"
+               f"{' (remote ok)' if p['preferences'].get('remote_ok') else ''}",
+               "✅ Approved by you" if p.get("approved") else "⏳ **Not approved yet.** Review it, then reply "
+               "`@tracker approve profile`."]
+        return {"profile": p, "approved": p.get("approved", False), "message": "\n".join(msg)}
+
+    def profile_import(self, source: str, actor: str = "agent") -> dict:
+        path = Path(source)
+        if path.suffix.lower() == ".pdf" and path.exists():
+            text = pr.text_from_pdf(path)
+        elif path.exists() and path.suffix.lower() in (".txt", ".md"):
+            text = path.read_text(encoding="utf-8-sig")
+        else:
+            text = source
+        draft, notes = pr.import_text(text)
+        draft["approved"] = False
+        problems = pr.validate(draft)
+        self.profile_path.write_text(json.dumps(draft, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.store.log(None, actor, "profile_imported", source if len(source) < 200 else "pasted text")
+        return {"profile": draft, "notes": notes, "problems": problems,
+                "message": f"Imported a draft profile: {len(draft['projects'])} projects, "
+                           f"{len(draft['experience'])} experience entries, {len(draft['skills'])} skills.\n"
+                           + "\n".join(f"⚠️ {n}" for n in problems + notes)}
+
+    def profile_save(self, profile: dict | str, actor: str = "agent") -> dict:
+        data = json.loads(profile) if isinstance(profile, str) else profile
+        old = pr.load(self.profile_path) if self.profile_path.exists() else {}
+        # any edit made by an agent needs fresh human approval
+        data["approved"] = bool(old.get("approved")) and actor.lower().startswith("human")
+        try:
+            p = pr.save(data, self.profile_path)
+        except pr.ProfileError as e:
+            return {"ok": False, "problems": e.problems, "message": "❌ " + "\n❌ ".join(e.problems)}
+        self.store.log(None, actor, "profile_saved", "")
+        return {"ok": True, "profile": p, "message": "Profile saved. It needs your approval before tailoring."}
+
+    def profile_approve(self, actor: str, note: str = "") -> dict:
+        if not actor.lower().startswith("human"):
+            raise OfferRoomError("only a human can approve the profile (actor='human:<name>')")
+        p = self.profile()
+        problems = pr.validate(p)
+        if problems:
+            raise OfferRoomError("fix these first: " + "; ".join(problems))
+        p["approved"] = True
+        pr.save(p, self.profile_path)
+        self.store.log(None, actor, "profile_approved", note)
+        return {"ok": True, "message": f"✅ Profile approved by {actor.split(':', 1)[-1]}. Tailoring is unlocked."}
+
+    # ------------------------------------------------------------- jobs --
+    def _add_job(self, job: jb.Job, actor: str) -> dict:
+        self.store.save_job(job)
+        f = fitmod.score(self.profile(), job) if self.profile_path.exists() else None
+        app = self.store.ensure_app(job.id, actor, f)
+        msg = f"#{app['id']} · " + (fitmod.markdown(f) if f else f"**{job.title}** at **{job.company}**")
+        return {"job": job.to_dict() | {"description": job.description[:400] + "…"}, "fit": f,
+                "app_id": app["id"], "message": msg}
+
+    def job_add_url(self, url: str, actor: str = "agent") -> dict:
+        try:
+            job = jb.from_url(url)
+        except jb.JobError as e:
+            return {"ok": False, "message": f"❌ {e}"}
+        return self._add_job(job, actor)
+
+    def job_add_text(self, text: str, title: str = "", company: str = "", url: str = "", location: str = "",
+                     actor: str = "agent") -> dict:
+        return self._add_job(jb.from_text(text, title, company, url, location), actor)
+
+    def watchlist(self, update: dict | None = None) -> dict:
+        wl = json.loads(self.watchlist_path.read_text()) if self.watchlist_path.exists() else DEFAULT_WATCHLIST
+        if update is not None:
+            wl = update
+            self.watchlist_path.write_text(json.dumps(wl, indent=2))
+        return {"watchlist": wl, "message": "Watching: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in wl.items())}
+
+    def search(self, query: str = "", location: str = "", remote_only: bool = False, level: str = "",
+               limit: int = 5, actor: str = "agent") -> dict:
+        p = self.profile()
+        level = level or ("intern" if p["preferences"].get("level") == "intern" else "entry")
+        found, notes = jb.search(query, location, remote_only, level, self.watchlist()["watchlist"], limit=60)
+        known = {a["job_id"] for a in self.store.apps()}
+        scored = sorted(((fitmod.score(p, j), j) for j in found if j.id not in known),
+                        key=lambda x: -x[0]["score"])[:limit]
+        results, lines = [], []
+        for f, j in scored:
+            self.store.save_job(j)
+            app = self.store.ensure_app(j.id, actor, f)
+            results.append({"app_id": app["id"], "job_id": j.id, "title": j.title, "company": j.company,
+                            "score": f["score"], "url": j.url, "missing": f["missing"]})
+            why = ", ".join(f["matched"][:3]) or "few listed skills"
+            lines.append(f"**#{app['id']} {j.title}** · {j.company} · {j.location or 'Remote'}\n"
+                         f"   {f['score']}% fit · matches {why}"
+                         + (f" · missing {', '.join(f['missing'][:2])}" if f["missing"] else "") + f"\n   {j.url}")
+        head = f"🔎 {len(results)} new roles for \"{query or 'anything'}\" ({level})"
+        return {"results": results, "source_notes": notes,
+                "message": head + ("\n" + "\n".join(lines) if lines else "\nNothing new matched; try a broader query.")
+                           + ("\n_" + "; ".join(notes) + "_" if notes else "")}
+
+    def fit(self, ref: str | int) -> dict:
+        job = self._job(ref)
+        f = fitmod.score(self.profile(), job)
+        app = self.store.ensure_app(job.id, "agent", f)
+        return {"fit": f, "app_id": app["id"], "message": f"#{app['id']} · " + fitmod.markdown(f)}
+
+    def _job(self, ref: str | int) -> jb.Job:
+        if isinstance(ref, int) or str(ref).lstrip("#").isdigit():
+            return self.store.job(self.store.app(int(str(ref).lstrip("#")))["job_id"])
+        return self.store.job(str(ref))
+
+    def _app_id(self, ref: str | int) -> int:
+        if isinstance(ref, int) or str(ref).lstrip("#").isdigit():
+            return int(str(ref).lstrip("#"))
+        a = self.store.app_for_job(str(ref))
+        if not a:
+            raise OfferRoomError(f"no application for job '{ref}'")
+        return a["id"]
+
+    # ----------------------------------------------------------- tailor --
+    def tailor_draft(self, ref: str | int) -> dict:
+        """Deterministic first draft an agent can improve before rendering."""
+        p, job = self.profile(), self._job(ref)
+        f = fitmod.score(p, job)
+        t = tl.auto_tailor(p, job, f)
+        return {"tailored": t, "source_bullets": {e["id"]: e["bullets"] for e in p["projects"] + p["experience"]},
+                "message": "Draft ready. You may rephrase bullets with the job's wording, but use only facts from "
+                           "the profile (no new numbers, no new skills). Then call resume_render."}
+
+    def verify(self, tailored: dict | str) -> dict:
+        t = json.loads(tailored) if isinstance(tailored, str) else tailored
+        issues = tl.verify(t, self.profile())
+        blocks = [i for i in issues if i["severity"] == "block"]
+        return {"ok": not blocks, "issues": issues,
+                "message": "✅ Truth guard passed" if not blocks else
+                "🛑 Truth guard blocked this resume:\n" + "\n".join(f"- {i['path']}: {i['message']}" for i in blocks)}
+
+    def render(self, ref: str | int, tailored: dict | str | None = None, actor: str = "agent") -> dict:
+        p, job = self.profile(), self._job(ref)
+        if not p.get("approved"):
+            raise OfferRoomError("the profile isn't approved yet. Ask the human to review it first")
+        f = fitmod.score(p, job)
+        t = (json.loads(tailored) if isinstance(tailored, str) else tailored) or tl.auto_tailor(p, job, f)
+        t["job_id"] = job.id
+        check = self.verify(t)
+        if not check["ok"]:
+            return {"ok": False, **check}
+        app = self.store.ensure_app(job.id, actor, f)
+        out = self.home / "outputs" / f"{app['id']:03d}-{_slug(job.company)}-{_slug(job.title)}"
+        doc = rd.resume_doc(p, t)
+        pdf = rd.render_pdf(doc, out / "resume.pdf")
+        docx = rd.render_docx(doc, out / "resume.docx")
+        note = rd.cover_note(p, job, f, t)
+        (out / "cover-note.txt").write_text(note, encoding="utf-8")
+        (out / "tailored.json").write_text(json.dumps(t, indent=2), encoding="utf-8")
+        status = "tailored"
+        self.store.set_status(app["id"], status, actor, "resume rendered")
+        self.store.update_app(app["id"], actor, "", tailored=t, resume_pdf=pdf["path"],
+                              resume_docx=docx, cover_note=note)
+        changes = tl.changes(t, p)
+        warns = [i for i in check["issues"] if i["severity"] == "warn"]
+        msg = [f"✂️ **#{app['id']} resume for {job.title} at {job.company}** ({f['score']}% fit)",
+               *[f"- {c}" for c in changes],
+               *(f"- Trimmed to fit one page: {x}" for x in pdf["trimmed"]),
+               *(f"- ⚠️ {w['path']}: {w['message']}" for w in warns),
+               "", "✅ Truth guard passed: every line traces back to your profile.",
+               f"Files: `{pdf['path']}` · `{docx}`",
+               f"\n**Reply `@tracker approve #{app['id']}`** to mark it ready, or tell `@tailor` what to change."]
+        return {"ok": True, "app_id": app["id"], "pdf": pdf["path"], "docx": docx, "cover_note": note,
+                "changes": changes, "warnings": warns, "message": "\n".join(msg)}
+
+    # ---------------------------------------------------------- tracker --
+    def set_status(self, ref: str | int, status: str, actor: str, note: str = "") -> dict:
+        a = self.store.set_status(self._app_id(ref), status, actor, note)
+        extra = ""
+        if status == "applied":
+            extra = f" I'll remind you to follow up on {a['followup_at'][:10]}."
+        if status == "approved":
+            where = f"Apply here: {a['url']}" if a.get("url") else "Apply on the company's careers page"
+            extra = f" {where}, then tell me `@tracker applied #{a['id']}`."
+        return {"application": a, "message": f"📋 #{a['id']} {a['title']} at {a['company']} → **{status}**.{extra}"}
+
+    def note(self, ref: str | int, text: str, actor: str = "agent") -> dict:
+        app_id = self._app_id(ref)
+        a = self.store.app(app_id)
+        self.store.update_app(app_id, actor, "note", notes=(a.get("notes") or "") + f"\n[{actor}] {text}")
+        return {"message": f"📝 noted on #{app_id}"}
+
+    def pipeline(self) -> dict:
+        apps = self.store.apps()
+        lines = ["📋 **Pipeline**"]
+        for s in STATUSES:
+            group = [a for a in apps if a["status"] == s]
+            if group:
+                lines.append(f"**{s.title()}** ({len(group)})")
+                for a in group[:8]:
+                    fu = f" · follow up {a['followup_at'][:10]}" if s == "applied" and a.get("followup_at") else ""
+                    lines.append(f"  #{a['id']} {a['title']} · {a['company']} · {a['fit_score'] or '?'}%{fu}")
+        if len(lines) == 1:
+            lines.append("Empty. Paste a job link or ask the Scout to search.")
+        counts = {s: sum(1 for a in apps if a["status"] == s) for s in STATUSES}
+        return {"counts": counts, "applications": [{k: a[k] for k in ("id", "title", "company", "status", "fit_score",
+                                                                       "url", "followup_at")} for a in apps],
+                "message": "\n".join(lines)}
+
+    def history(self, ref: str | int) -> dict:
+        app_id = self._app_id(ref)
+        h = self.store.history(app_id)
+        return {"history": h, "message": "\n".join(f"{e['at'][:16]} · {e['actor']} · {e['action']}"
+                                                   + (f" ({e['detail']})" if e["detail"] else "") for e in h)}
+
+    def followups(self) -> dict:
+        due = self.store.due_followups()
+        drafts = [{"app_id": a["id"], "draft": self.followup_draft(a["id"])["draft"]} for a in due]
+        msg = ("⏰ **Follow-ups due**\n" + "\n".join(f"#{a['id']} {a['title']} at {a['company']} "
+                                                       f"(applied {a['applied_at'][:10]})" for a in due)
+               if due else "No follow-ups due.")
+        return {"due": [{"app_id": a["id"], "title": a["title"], "company": a["company"]} for a in due],
+                "drafts": drafts, "message": msg}
+
+    def followup_draft(self, ref: str | int) -> dict:
+        a = self.store.app(self._app_id(ref))
+        p = self.profile()
+        days = (datetime.now() - datetime.fromisoformat(a["applied_at"])).days if a.get("applied_at") else 7
+        draft = (f"Subject: Following up on my {a['title']} application\n\n"
+                 f"Hi {a['company']} team,\n\nI applied for the {a['title']} role {days} days ago and wanted to "
+                 f"check in. I'm still very interested, and happy to share more about my projects or do a "
+                 f"short call.\n\nThanks for your time,\n{p['name']}\n{p['email']}")
+        return {"draft": draft, "message": f"Draft follow-up for #{a['id']}:\n```\n{draft}\n```"}
+
+    def snooze(self, ref: str | int, days: int = 3, actor: str = "agent") -> dict:
+        a = self.store.snooze(self._app_id(ref), days, actor)
+        return {"message": f"⏰ #{a['id']} follow-up moved to {a['followup_at'][:10]}"}
+
+    def digest(self, days: int = 7) -> dict:
+        since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+        ev = self.store.events_since(since)
+        count = lambda action: len({e["app_id"] for e in ev if e["action"] == action})  # noqa: E731
+        apps = self.store.apps()
+        scores = [s for at, s in self.store.answer_scores() if at >= since]
+        all_scores = [s for _, s in self.store.answer_scores()]
+        fits = [a["fit_score"] for a in apps if a["fit_score"] is not None and a["status"] not in ("found",)]
+        lines = [f"📊 **Your last {days} days**",
+                 f"Roles found {count('found')} → tailored {count('tailored')} → approved {count('approved')} "
+                 f"→ applied {count('applied')} → interviews {count('interviewing')} → offers {count('offer')}"]
+        if fits:
+            lines.append(f"Average fit of roles you're pursuing: {round(sum(fits) / len(fits))}%")
+        if scores:
+            lines.append(f"Mock interview average: {round(sum(scores) / len(scores), 1)}/5 over {len(scores)} answers"
+                         + (f" (all-time {round(sum(all_scores) / len(all_scores), 1)})" if len(all_scores) > len(scores) else ""))
+        due = self.store.due_followups()
+        if due:
+            lines.append(f"⏰ {len(due)} follow-up(s) due")
+        if count("applied") == 0:
+            lines.append("💡 Nudge: no applications sent this week. Pick your best-fit tailored resume and send it.")
+        return {"since": since, "message": "\n".join(lines)}
+
+    # -------------------------------------------------------- interview --
+    def interview_start(self, ref: str | int, n: int = 6) -> dict:
+        p, job = self.profile(), self._job(ref)
+        f = fitmod.score(p, job)
+        app = self.store.app_for_job(job.id)
+        qs = iv.plan(p, job, f, n)
+        sid = self.store.new_interview(app["id"] if app else None, job.id, qs)
+        q = qs[0]
+        return {"session_id": sid, "questions": [{"id": x["id"], "kind": x["kind"], "question": x["question"]}
+                                                 for x in qs],
+                "message": f"🎤 **Mock interview #{sid}: {job.title} at {job.company}** ({len(qs)} questions)\n"
+                           f"**{q['id']} ({q['kind']})**: {q['question']}"}
+
+    def interview_answer(self, session_id: int, qid: str, answer: str) -> dict:
+        s = self.store.interview(session_id)
+        q = next((x for x in s["questions"] if x["id"] == qid), None)
+        if not q:
+            raise OfferRoomError(f"session {session_id} has no question '{qid}'")
+        g = iv.grade(q, answer)
+        self.store.add_answer(session_id, qid, answer, g["score"], g)
+        answered = {a["qid"] for a in s["answers"]} | {qid}
+        nxt = next((x for x in s["questions"] if x["id"] not in answered), None)
+        msg = [f"**{g['score']}/5** on {qid}", *[f"- {t}" for t in g["tips"]]]
+        if nxt:
+            msg.append(f"\n**{nxt['id']} ({nxt['kind']})**: {nxt['question']}")
+        else:
+            msg.append("\n" + iv.summary(self.store.interview(session_id))["message"])
+        return {"grade": g, "next": nxt and {"id": nxt["id"], "question": nxt["question"]}, "message": "\n".join(msg)}
+
+    def interview_summary(self, session_id: int) -> dict:
+        s = iv.summary(self.store.interview(session_id))
+        return {**s, "message": "🎤 " + s["message"]}
+
+
+def safe(fn):
+    """Wrap a service call so expected errors become a chat message instead of a crash."""
+    def run(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (OfferRoomError, TrackerError, pr.ProfileError, jb.JobError, json.JSONDecodeError) as e:
+            return {"ok": False, "message": f"❌ {e}"}
+    run.__name__, run.__doc__ = fn.__name__, fn.__doc__
+    return run

@@ -1,0 +1,258 @@
+"""offerroom command line: the same tools the agents use, for humans and for demos."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+from importlib import resources
+from pathlib import Path
+
+from .app import OfferRoom, safe
+
+AGENTS = ("scout", "tailor", "interviewer", "tracker")
+ALL_TOOLS = ("profile_show", "profile_import", "profile_save", "profile_approve", "job_add_url", "job_add_text",
+             "jobs_search", "watchlist", "fit_score", "resume_draft", "resume_verify", "resume_render",
+             "app_set_status", "app_note", "app_history", "pipeline", "followups_due", "followup_snooze", "digest",
+             "interview_start", "interview_answer", "interview_summary")
+
+
+def _print(result: dict, as_json: bool) -> int:
+    if as_json:
+        print(json.dumps(result, indent=2, default=str))
+    else:
+        print(result.get("message", json.dumps(result, indent=2, default=str)))
+    return 0 if result.get("ok", True) else 1
+
+
+def _sample(name: str) -> Path:
+    return Path(str(resources.files("offerroom").joinpath("samples", name)))
+
+
+def cmd_demo(args, room: OfferRoom) -> int:
+    """Whole flow, offline, on sample data. Uses its own workspace."""
+    shutil.copy(_sample("profile.json"), room.profile_path)
+    step = lambda title: print(f"\n{'=' * 70}\n{title}\n{'=' * 70}")  # noqa: E731
+    step("1. Profile (sample student: fictional)")
+    print(room.profile_show()["message"])
+    step("2. Three job posts arrive: the Scout scores each one")
+    for j in json.loads(_sample("jobs.json").read_text(encoding="utf-8")):
+        print(room.job_add_text(j["text"], j["title"], j["company"], j["url"], j["location"])["message"], "\n")
+    step("3. Gate: tailoring is refused until the human approves the profile")
+    print(safe(room.render)("1")["message"])
+    print(room.profile_approve("human:demo-user", "looks right")["message"])
+    step("4. Truth guard: an agent tries to pad the resume")
+    padded = room.tailor_draft("1")["tailored"]
+    padded["skills"] = padded["skills"] + ["Kubernetes"]
+    padded["projects"][0]["bullets"][0] += ", serving 10,000 daily users"
+    print(room.verify(padded)["message"])
+    step("5. Honest tailored resume rendered (PDF + DOCX + cover note)")
+    r = room.render("1")
+    print(r["message"], "\n\n--- cover note ---\n" + r["cover_note"])
+    step("6. Human approves and applies; Tracker schedules a follow-up")
+    print(room.set_status("1", "approved", "human:demo-user", "approve 1")["message"])
+    print(room.set_status("1", "applied", "human:demo-user", "applied on their site")["message"])
+    step("7. Mock interview for that role")
+    s = room.interview_start("1", 4)
+    print(s["message"])
+    print(room.interview_answer(s["session_id"], "q1",
+          "I'm a final-year CS student. While building QueueLess I had to keep canteen queues live, so I built a "
+          "FastAPI service with Redis and load-tested it with 300 concurrent users. I want Kestrel Labs because "
+          "I enjoy backend work in Python and SQL, which is exactly this role.")["message"])
+    step("8. Pipeline and weekly digest")
+    print(room.pipeline()["message"], "\n")
+    print(room.digest()["message"])
+    print(f"\nFiles are in {room.home / 'outputs'}")
+    return 0
+
+
+def _register_mcp(agent_dir: Path, home: Path) -> str:
+    """Register the OfferRoom MCP server for one agent folder at Claude Code's *local* scope,
+    so sessions Switch starts there load it without an approval prompt."""
+    import subprocess
+    claude = shutil.which("claude")
+    if not claude:
+        return "Claude Code CLI not found: install it, then re-run setup-agents"
+    launcher = Path(sys.executable).with_name("offerroom-mcp.exe" if sys.platform == "win32" else "offerroom-mcp")
+    server = {"type": "stdio", "command": launcher.as_posix(), "env": {"OFFERROOM_HOME": home.as_posix()}}
+    run = lambda *a: subprocess.run([claude, "mcp", *a], cwd=agent_dir, capture_output=True, text=True,  # noqa: E731
+                                    encoding="utf-8", errors="replace")
+    run("remove", "-s", "local", "offerroom")
+    r = run("add-json", "-s", "local", "offerroom", json.dumps(server))
+    return "registered" if r.returncode == 0 else f"claude mcp add-json failed: {(r.stderr or r.stdout).strip()}"
+
+
+def cmd_setup_agents(args, room: OfferRoom) -> int:
+    """Wire each agent folder: shared protocol, MCP server registration, tool permissions."""
+    root = Path(args.agents_dir).resolve()
+    protocol = root / "ROOM_PROTOCOL.md"
+    if args.install_into:
+        # Switch Console may create its own working folder per agent (e.g. ~/.switch/agents/<server>/<name>);
+        # copy the agent definitions there and wire those folders instead
+        target = Path(args.install_into).expanduser().resolve()
+        for name in AGENTS:
+            (target / name).mkdir(parents=True, exist_ok=True)
+            for f in ("CLAUDE.md", "tools.json"):
+                shutil.copy(root / name / f, target / name / f)
+        shutil.copy(protocol, target / "ROOM_PROTOCOL.md")
+        root, protocol = target, target / "ROOM_PROTOCOL.md"
+        print(f"Installed agent definitions into {target}")
+    ok = True
+    for name in AGENTS:
+        d = root / name
+        if not (d / "CLAUDE.md").exists():
+            print(f"skipping {d}: no CLAUDE.md (run this from the repo root)")
+            continue
+        # imports from outside the folder need a trust prompt, so each agent gets its own copy
+        shutil.copy(protocol, d / "ROOM_PROTOCOL.md")
+        settings_dir = d / ".claude"
+        settings_dir.mkdir(exist_ok=True)
+        tools = json.loads((d / "tools.json").read_text(encoding="utf-8"))
+        unknown = set(tools) - set(ALL_TOOLS)
+        if unknown:
+            print(f"❌ {name}/tools.json lists unknown tools: {', '.join(sorted(unknown))}")
+            return 1
+        settings = {"enableAllProjectMcpServers": True,
+                    "permissions": {
+                        "allow": [f"mcp__offerroom__{t}" for t in tools] + ["mcp__switch", "Read"],
+                        "deny": [f"mcp__offerroom__{t}" for t in ALL_TOOLS if t not in tools]
+                                + ["Bash", "Write", "Edit", "WebFetch"]}}
+        (settings_dir / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        status = "skipped (--no-register)" if args.no_register else _register_mcp(d, room.home)
+        ok = ok and status in ("registered", "skipped (--no-register)")
+        print(f"{'✅' if ok else '❌'} {name}: {d} · MCP {status}")
+    print(f"\nAll agents share data in {room.home}")
+    return 0 if ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser(prog="offerroom", description="Your job hunt, run by a team of agents.")
+    ap.add_argument("--home", help="data folder (default $OFFERROOM_HOME or ./workspace)")
+    ap.add_argument("--json", action="store_true", help="machine-readable output")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("demo", help="run the whole flow offline on sample data")
+    p = sub.add_parser("setup-agents", help="wire the Switch agent folders to this machine")
+    p.add_argument("--agents-dir", default="agents")
+    p.add_argument("--no-register", action="store_true", help="don't register the MCP server with Claude Code")
+    p.add_argument("--install-into", metavar="DIR",
+                   help="copy the agents into Switch's own agent folders (e.g. ~/.switch/agents/<server>) and wire those")
+    sub.add_parser("mcp", help="run the MCP server (stdio)")
+    p = sub.add_parser("clock", help="post the morning run / weekly digest into the Switch room on a schedule")
+    p.add_argument("--morning", default="09:00", help="HH:MM for '@scout morning run'")
+    p.add_argument("--digest-day", default="sun", choices=["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+    p.add_argument("--once", choices=["morning", "digest"], help="post one message now and exit")
+    p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("profile", help="show / import / approve your profile")
+    p.add_argument("action", choices=["show", "import", "approve", "sample"])
+    p.add_argument("source", nargs="?", help="resume PDF/TXT path or text (for import)")
+    p.add_argument("--as", dest="who", default="you")
+
+    p = sub.add_parser("add", help="add a job by URL, or by pasted text with --text-file")
+    p.add_argument("url", nargs="?")
+    p.add_argument("--text-file")
+    p.add_argument("--title", default="")
+    p.add_argument("--company", default="")
+    p.add_argument("--location", default="")
+
+    p = sub.add_parser("search", help="find new roles that fit your profile")
+    p.add_argument("query", nargs="?", default="")
+    p.add_argument("--location", default="")
+    p.add_argument("--remote", action="store_true")
+    p.add_argument("--level", default="", choices=["", "intern", "entry", "any"])
+    p.add_argument("--limit", type=int, default=5)
+
+    for name in ("fit", "history", "followup"):
+        sub.add_parser(name).add_argument("ref")
+    p = sub.add_parser("tailor", help="render a tailored resume for an application/job")
+    p.add_argument("ref")
+    p.add_argument("--from", dest="tailored", help="your own tailored JSON file")
+    p = sub.add_parser("status", help="move an application (you are the human here)")
+    p.add_argument("ref")
+    p.add_argument("status")
+    p.add_argument("--as", dest="who", default="you")
+    p.add_argument("--note", default="")
+    sub.add_parser("pipeline")
+    sub.add_parser("followups")
+    p = sub.add_parser("digest")
+    p.add_argument("--days", type=int, default=7)
+    p = sub.add_parser("interview", help="interactive mock interview in the terminal")
+    p.add_argument("ref")
+    p.add_argument("-n", type=int, default=6)
+
+    args = ap.parse_args(argv)
+    if args.cmd == "mcp":
+        from .server import main as serve
+        serve()
+        return 0
+    if args.cmd == "clock":
+        from .clock import run
+        try:
+            run(args.morning, args.digest_day, args.once, args.dry_run)
+        except (RuntimeError, OSError) as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        return 0
+    home = args.home or (Path.cwd() / "demo-workspace" if args.cmd == "demo" else None)
+    room = OfferRoom(home)
+    if args.cmd == "demo":
+        return cmd_demo(args, room)
+    if args.cmd == "setup-agents":
+        return cmd_setup_agents(args, room)
+    who = f"human:{getattr(args, 'who', 'you')}"
+    if args.cmd == "profile":
+        if args.action == "show":
+            return _print(safe(room.profile_show)(), args.json)
+        if args.action == "sample":
+            shutil.copy(_sample("profile.json"), room.profile_path)
+            return _print({"message": f"Copied the sample profile to {room.profile_path}"}, args.json)
+        if args.action == "import":
+            return _print(safe(room.profile_import)(args.source, who), args.json)
+        return _print(safe(room.profile_approve)(who), args.json)
+    if args.cmd == "add":
+        if args.text_file:
+            text = Path(args.text_file).read_text(encoding="utf-8-sig")
+            return _print(safe(room.job_add_text)(text, args.title, args.company, args.url or "", args.location, who),
+                          args.json)
+        return _print(safe(room.job_add_url)(args.url, who), args.json)
+    if args.cmd == "search":
+        return _print(safe(room.search)(args.query, args.location, args.remote, args.level, args.limit), args.json)
+    if args.cmd == "fit":
+        return _print(safe(room.fit)(args.ref), args.json)
+    if args.cmd == "tailor":
+        t = Path(args.tailored).read_text(encoding="utf-8-sig") if args.tailored else None
+        return _print(safe(room.render)(args.ref, t, who), args.json)
+    if args.cmd == "status":
+        return _print(safe(room.set_status)(args.ref, args.status, who, args.note), args.json)
+    if args.cmd == "history":
+        return _print(safe(room.history)(args.ref), args.json)
+    if args.cmd == "followup":
+        return _print(safe(room.followup_draft)(args.ref), args.json)
+    if args.cmd == "pipeline":
+        return _print(room.pipeline(), args.json)
+    if args.cmd == "followups":
+        return _print(safe(room.followups)(), args.json)
+    if args.cmd == "digest":
+        return _print(room.digest(args.days), args.json)
+    if args.cmd == "interview":
+        s = safe(room.interview_start)(args.ref, args.n)
+        print(s["message"])
+        if "session_id" not in s:
+            return 1
+        for q in s["questions"]:
+            ans = input(f"\n[{q['id']}] your answer (blank line to stop) > ").strip()
+            if not ans:
+                break
+            print(room.interview_answer(s["session_id"], q["id"], ans)["message"])
+        print("\n" + room.interview_summary(s["session_id"])["message"])
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

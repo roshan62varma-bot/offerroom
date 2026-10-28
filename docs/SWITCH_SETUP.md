@@ -1,165 +1,132 @@
-# Set up OfferRoom in Switch (about 15 minutes)
+# Set up OfferRoom in Switch (about 20 minutes)
 
-These steps follow the Switch docs (docs.switchagents.ai) as of Oct 2026. Where a label might differ in
-your version of Switch Console, the intent is described so you can find the right button.
+This is the setup that was tested end to end on Windows in Oct 2026, with Switch Console 0.40 and
+OpenCode 1.19, on Gemini's free tier. Button names may differ slightly in newer Switch Console versions;
+the intent of each step is described.
 
 ## 0. Prerequisites
-- **Docker Desktop:** running (you already have v29).
-- **Claude Code:** signed in (`claude auth login`). Check that `claude --version` works.
+- **Docker Desktop**, running ("Engine running").
+- **OpenCode 1.18+**: `npm install -g opencode-ai@latest`, then check with `opencode --version`.
+- **A free Gemini API key** from https://aistudio.google.com/apikey, saved once as a user environment variable:
+  ```powershell
+  [Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "<your key>", "User")
+  ```
+  Then restart your terminal and Switch Console. The agents' config reads it as `{env:GEMINI_API_KEY}`, so
+  the key never goes into a file.
 - **This repo:**
   ```bash
   python -m venv .venv && .venv\Scripts\activate && pip install -e .[dev]
-  offerroom demo          # sanity check: should finish with "Files are in …"
+  offerroom demo          # sanity check: should end with "Files are in …"
   ```
+  To use Claude Code instead of a free model, see §7.
 
-## 1. Wire the agent folders (one command)
+## 1. Start Switch
+1. Install **Switch Console**: https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x64.exe
+   On Windows, if SmartScreen warns you, choose **More info → Run anyway**.
+2. **Settings → Agent providers:** **OpenCode** should be available or connected. If not, fully quit and
+   reopen Switch Console (it reads PATH at startup), then use **Recheck**.
+3. **Run a server on this computer** → wait for "Docker is ready" → **Start**. The first start downloads a few GB.
+4. **Home → Messaging apps → Mattermost ⋯ → Open in Mattermost.** This is your chat app.
+
+## 2. Create the five agents
+**Your Agents → ➕**, once per agent. Use exactly these names, because agents call each other by name:
+
+| Name | Description |
+|---|---|
+| `mentor` | AI team lead: plans, guides the other agents, signs off |
+| `scout` | Finds and scores jobs that fit the candidate |
+| `tailor` | Builds honest, tailored one-page resumes |
+| `interviewer` | Critiques resumes and runs graded mock interviews |
+| `tracker` | Profile, board, approvals, follow-ups, digests |
+
+For every agent:
+- **Agent instructions:** `Follow AGENTS.md in your working directory. You are part of OfferRoom.`
+- **Run location:** This computer. **Agent provider:** **OpenCode**.
+- **Settings → Who can talk to your agent:** **Me and my agents**. This lets agents hand off to each other,
+  and lets the Mentor direct them.
+
+The provider can't be changed later in the UI. To switch an existing agent between Claude Code and
+OpenCode, delete it and re-create it with the same name. Its folder and instructions are kept.
+
+## 3. Install OfferRoom into Switch's agent folders
+Switch Console runs each agent in its own folder: `%USERPROFILE%\.switch\agents\<server>\<name>` (for example
+`localhost-65098`). Point OfferRoom there:
 ```bash
-offerroom --home workspace setup-agents
+offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>" ^
+    --provider opencode --model google/gemini-flash-lite-latest
 ```
-For each of `agents/scout`, `agents/tailor`, `agents/interviewer` and `agents/tracker`, this:
-- copies the shared `ROOM_PROTOCOL.md` into the folder
-- writes `.claude/settings.json` with that agent's tool allow/deny list
-- registers the OfferRoom MCP server with Claude Code at *local* scope for that folder, all sharing `workspace/`
+For each agent, this writes `AGENTS.md` (role plus the shared room protocol), `opencode.json` (the free model,
+the OfferRoom MCP server and that agent's tool allow/deny list) and the Claude Code equivalents.
 
-Check it worked:
-```bash
-cd agents/scout && claude mcp list      # → offerroom: … ✔ Connected
-```
-
-**Trust each folder once.** Claude Code ignores a folder's permission settings until you've trusted it.
-Run `claude` in each of the four agent folders, accept the trust prompt, then type `/exit`. Alternatively,
-turn on **Bypass permissions** for each agent in Switch (step 3); the deny list still blocks shell and file edits.
-
-## 2. Start Switch
-1. Install **Switch Console** and open it. Windows is in early access.
-2. Go to **Settings → Agent providers** and make sure Claude Code shows **Signed in**.
-3. Choose **Run a server on this computer** → wait for "Docker is ready" → **Start**. The first start downloads a few GB.
-4. Go to **Home → Messaging apps** → on the Mattermost row, choose **Sign-in details…** → **Open in Mattermost**.
-
-## 3. Create the five agents
-In **Your Agents**, use the **+** card. Do this once per agent:
-
-| Name | Display name | Directory | Description |
-|---|---|---|---|
-| `mentor` | 🧭 Mentor | `<repo>/agents/mentor` | AI team lead: plans, guides the other agents, signs off |
-| `scout` | 🔎 Scout | `<repo>/agents/scout` | Finds and scores jobs that fit the candidate |
-| `tailor` | ✂️ Tailor | `<repo>/agents/tailor` | Builds honest, tailored one-page resumes |
-| `interviewer` | 🎤 Interviewer | `<repo>/agents/interviewer` | Runs graded mock interviews for a specific role |
-| `tracker` | 📋 Tracker | `<repo>/agents/tracker` | Profile, pipeline, approvals, follow-ups, digests |
-
-- **Agent provider:** Claude Code. **Run location:** This computer.
-- **Agent instructions** (same for all four): `Follow CLAUDE.md in your working directory. You are part of OfferRoom.`
-  The full role is in each folder's `CLAUDE.md`, which Claude Code loads automatically.
-- **Settings → Who can talk to your agent:** **Me and my agents**. This lets the agents hand off to each other,
-  and lets the 🧭 Mentor direct them.
-- **Optional, in Advanced → Model:** `sonnet` for Scout and Tracker (fast), and `opus` for Tailor and Interviewer (writing quality).
-
-### ⚠️ If an agent says its folder is empty
-Some Switch Console versions (seen with v0.40, run location "This computer" / managed agent) ignore the
-chosen directory. They run each agent in their own folder: `C:\Users\<you>\.switch\agents\<server>\<name>`.
-Point OfferRoom at those folders instead:
-```bash
-offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>"
-```
-Find `<server>` (e.g. `localhost-65098`) by opening `%USERPROFILE%\.switch\agents`. Then type
-`!reset-all-agents` in the room.
+`gemini-flash-latest` writes better but is often overloaded on the free tier. `flash-lite-latest` was reliable.
 
 ## 4. One room for all of them
 1. Create a room called **offerroom**.
-2. Add all five agents to it. On each agent's page, use **Add to room**.
-3. In Mattermost, say hi: `@tracker hello`. An agent session starts on its first mention.
+2. Add the agents: on each agent's page use **Add to room**, or type in the room: `!invite-agent @mentor` (and
+   the same for the others).
+3. Type `!reset-all-agents`. An agent starts a session on its first mention.
 
-## 4b. Register the humans (terminal only)
+## 5. Register the humans (terminal only)
 Only names on this roster can make decisions, and no agent can edit it.
 ```bash
-offerroom --home workspace people owner <your Mattermost username>      # e.g. "user" on a local server
-offerroom --home workspace people                                     # check it
+offerroom --home workspace people owner <your Mattermost username>   # e.g. "user" on a local server
+offerroom --home workspace people                                  # check it
 ```
 
-**Optional: add a human reviewer** (a senior, friend or placement-cell coordinator). This is a person, not
-the 🧭 Mentor agent:
-1. Create a Mattermost account for them. On a local server: Mattermost → System Console → Users, or invite
-   them with a link. Add them to `#offerroom`.
-2. Put them on the roster and choose how strict to be:
-   ```bash
-   offerroom --home workspace people reviewer-add <their username>
-   offerroom --home workspace people review required    # or: optional (default), off
-   ```
-3. Agents only listen to their owner by default. On **tracker** and **interviewer**, set **Who can talk to
-   your agent** to a rule that also allows the mentor (Custom rules, or Anyone on a private local server).
-   The roster still decides what the mentor is *allowed* to do.
-
-The reviewer then writes `@tracker review #3 approve` or `@tracker review #3 changes: lead with QueueLess`,
-and can join a mock interview with `@interviewer panel question: Why fintech?`.
-
-Creating the reviewer's Mattermost account on a local server, from a terminal:
+**Optional: a human reviewer** (a senior or friend; a person, not the Mentor agent):
 ```bash
 docker exec <mattermost container> mmctl --local user create --email priya@localhost.local --username priya --password <pw>
 docker exec <mattermost container> mmctl --local team users add switch priya
 docker exec <mattermost container> mmctl --local channel users add switch:offerroom priya
+offerroom --home workspace people reviewer-add priya
+offerroom --home workspace people review required      # or optional (default) / off
 ```
+Set **Who can talk to your agent** on tracker and interviewer so the reviewer can reach them ("Anyone" on a
+private local server). The roster still decides what the reviewer may do. The reviewer then writes
+`@tracker review #3 approve` or `changes: …`, and `@interviewer panel question: …`.
 
-## 5. First run
-1. `@tracker here's my resume` and attach your PDF. Review the draft, correct anything wrong, then `@tracker approve profile`.
-   To demo without your own data, run `offerroom --home workspace profile sample` first. That loads a fictional student.
-2. `@scout check this: <a real job link>`. Watch Scout hand off to Tailor.
-3. `@tracker approve #1` → `@tracker applied #1` → `@interviewer start #1`.
+## 6. First run
+1. `@tracker here's my resume` and attach your PDF. Fix anything wrong, then `@tracker approve profile`.
+   Or try a fictional student first: `offerroom --home workspace profile sample`.
+2. `@mentor weekly plan`. You'll see the plan and standing guidance for each agent.
+3. `@scout check this: <job link>`. Watch Scout → Tailor → Interviewer → Mentor.
+4. `@tracker approve #1` → apply on the company site → `@tracker applied #1` → `@interviewer start #1`.
 
-## 6. Optional: a proactive morning scout
-`offerroom clock` posts `@scout morning run` at 9:00 and `@tracker weekly digest` on Sundays through
-Switch's agent API.
-1. Register a "clock" agent on your server, following *The agent protocol* in the Switch docs (`POST /agents`
-   with your registration key). This gives you an `id` and an `api_key`.
-2. Give the clock agent permission to talk to Scout and Tracker. Check **Who can talk to your agent** on each.
-3. Run the clock:
+## 7. Optional: Claude Code instead of a free model
+Create the agents with provider **Claude Code** and instructions `Follow CLAUDE.md in your working directory.`,
+then run:
+```bash
+offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>"
+```
+This registers the OfferRoom MCP server for each folder at Claude Code's local scope. Claude writes better, but
+five chatting agents use a lot of a Claude plan.
+
+## 8. Optional: a proactive scheduler
+`offerroom clock` posts `@scout morning run` at 9:00 and `@mentor weekly plan` on Sundays through Switch's
+agent API (`POST /agents/{id}/message`).
+1. Register a "clock" agent on your server, following *The agent protocol* in the Switch docs, to get an `id`
+   and an `api_key`.
+2. Run it:
    ```bash
-   set SWITCH_API_URL=<API URL from Console>
+   set SWITCH_API_URL=http://127.0.0.1:<port>
    set SWITCH_AGENT_ID=<id>
    set SWITCH_AGENT_KEY=<api_key>
    set SWITCH_ROOM_ID=<room id>
    offerroom clock --once morning     # test once
    offerroom clock                    # keep running
    ```
-
-On a local server, the API URL is `http://127.0.0.1:<port>`: the number in your
-`%USERPROFILE%\.switch\agents\localhost-<port>` folder. The message route was checked there (it answers
-`401 Missing or invalid Authorization header` without a key). If anything differs, just type the two
-messages yourself.
-
-## 7. Optional: free or other models (OpenCode)
-The engine has no AI inside, so the agents can run on any model OpenCode supports.
-1. Install OpenCode and sign in to a provider. Free or cheap options include a Gemini API key (free tier),
-   Groq, OpenRouter's free models, or a local model with Ollama.
-2. Generate the OpenCode version of every agent:
-   ```bash
-   offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>" ^
-       --provider opencode --model google/gemini-2.5-flash
-   ```
-   This writes `AGENTS.md` (role plus protocol) and `opencode.json` (the OfferRoom MCP server, and the same
-   tool allow/deny rules) into each agent folder.
-3. In Switch Console, set each agent's **Agent provider** to **OpenCode**, then type `!reset-all-agents`.
-
-Model names change often. Use the exact id your provider lists (`opencode models google`). Smaller
-models follow the room protocol less reliably, so try Scout and Tracker on a free model first.
-
-**Tested setup (Oct 2026): Gemini free tier.** Get a free key at https://aistudio.google.com/apikey and set
-it once as a user environment variable named `GEMINI_API_KEY`. The generated `opencode.json` reads it from
-there with `{env:GEMINI_API_KEY}`, so the key never lands in a file. Then:
-```bash
-offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>" ^
-    --provider opencode --model google/gemini-flash-lite-latest
-```
-With `gemini-flash-lite-latest`, live runs passed for Scout (score + handoff), Tailor (draft → truth guard →
-render → handoff) and Tracker (refused an agent's fake approval). `gemini-flash-latest` writes better but is
-often overloaded on the free tier.
-
-OpenCode's own `opencode/*-free` models need OpenCode 1.18+ and a current key from the OpenCode console.
+   `<port>` is the number in your `%USERPROFILE%\.switch\agents\localhost-<port>` folder.
 
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
-| An agent doesn't answer | Switch Console must be running. Mention the agent with its exact name (`@scout`). |
-| "isn't permitted to take directed messages" | Set **Who can talk to your agent** to **Me and my agents** on the receiving agent. |
-| An agent says the OfferRoom tools are missing | Run `claude mcp list` in its folder. Re-run `offerroom --home workspace setup-agents`. |
-| Agents keep asking permission for tools | Trust the folder once (step 1) or enable **Bypass permissions** for that agent. |
-| `❌ internal error … server.log` | Look at `workspace/server.log`. A file locked by OneDrive or a PDF viewer is the usual cause; close it and retry. |
+| "@mentor isn't in this room" | Run `!invite-agent @mentor`, or use the agent's **Add to room**. |
+| An agent doesn't answer | Switch Console must be running. Mention the agent with its exact name. |
+| An agent says its folder is empty or shows your admin account | Run §3 again (`--install-into`), then `!reset-all-agents`. |
+| "Google … API key is missing" | Set `GEMINI_API_KEY` as a *user* environment variable, then restart Switch Console. |
+| "model is no longer available" or "high demand" | Use `google/gemini-flash-lite-latest` (§3), or try again later. |
+| "OpenCode 1.18.0 or newer is required" | `npm install -g opencode-ai@latest` |
+| OpenCode missing from the provider list | Fully quit and reopen Switch Console, then **Settings → Agent providers → Recheck**. |
+| "isn't permitted to take directed messages" | Set **Who can talk to your agent** to **Me and my agents**. |
+| The Mentor greets you instead of planning | Ask again plainly: `@mentor weekly plan`. Free models sometimes need a second nudge. |
+| `❌ internal error … server.log` | See `workspace/server.log`. Usually a file is open in another program; close it and retry. |

@@ -57,7 +57,7 @@ minute. Then it *stopped* and waited for me.
 [Switch](https://github.com/sandbox-quantum/switch) is an open-source layer that brings AI agents into
 team chat (Slack, Teams, Discord, Telegram, Mattermost). Three things made it the right base:
 
-1. **Rooms with several agents.** All four agents live in one room, and they hand work over with an
+1. **Rooms with several agents.** All five agents live in one room, and they hand work over with an
    `@mention`, in the open. I end every handoff with a small JSON block, so anyone reading the room
    can see exactly what was passed.
 2. **Agents are just folders.** A Switch agent running Claude Code is a working directory. Each OfferRoom
@@ -218,8 +218,11 @@ Claude Code.
 - **Voice-friendly interviews.** Answer by voice with Wispr Flow. Filler words are ignored when grading
   and counted as feedback. Each answer gets a transparent rubric score *and* the Interviewer's own
   judgement, averaged.
-- **Free-model mode.** `setup-agents --provider opencode` runs the same agents through OpenCode on
-  Gemini, Groq, OpenRouter or a local Ollama model. The engine has no AI inside.
+- **It runs on a free model.** Five chatty agents on a paid plan burned through my credits fast, so I moved
+  them to OpenCode with Gemini's free tier (`gemini-flash-lite-latest`). Because the engine has no AI inside,
+  that was a config change, not a rewrite. On the free model, Scout still scored and handed off, Tailor
+  still passed the truth guard, and Tracker still refused a fake approval. The free model even found a
+  bug: one-line "Requirements: …. Nice to have: …" posts were treated as all nice-to-have.
 - **Indian startups on the watchlist.** Razorpay, Groww, CRED, Meesho, Zeta, Paytm, FamPay, Sarvam,
   Composio, Atlan and more, all through their public job APIs.
 

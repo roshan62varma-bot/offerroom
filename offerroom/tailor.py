@@ -149,6 +149,49 @@ def _flatten(x) -> list[str]:
     return [str(x)]
 
 
+WEAK_OPENERS = re.compile(r"^(?:worked on|helped|responsible for|assisted|did|was|were|involved in|"
+                          r"participated|tasked with|handled various|part of)\b", re.I)
+
+
+def critique(tailored: dict, profile: dict, job: Job) -> dict:
+    """A second opinion on a tailored resume (used by the Interviewer to push back on the Tailor).
+    Only flags things that can be fixed honestly: wording, emphasis, and facts to *ask* the candidate for."""
+    by_id = {e["id"]: e for sec in pr.SECTIONS for e in profile[sec]}
+    text_parts = [tailored.get("summary", ""), " ".join(tailored.get("skills") or [])]
+    findings, defend = [], []
+    for sec in ("experience", "projects"):
+        for t in tailored.get(sec) or []:
+            label = pr.entry_label(profile, t["id"]) if t["id"] in by_id else t["id"]
+            for b in t.get("bullets") or []:
+                text_parts.append(b)
+                words = len(b.split())
+                if WEAK_OPENERS.search(b):
+                    findings.append({"kind": "weak_verb", "where": label, "bullet": b,
+                                     "fix": "lead with a strong verb: Built, Designed, Cut, Shipped, Automated"})
+                if not re.search(r"\d", b):
+                    findings.append({"kind": "no_impact", "where": label, "bullet": b,
+                                     "fix": "ask the candidate for a real number (users, time saved, %); never guess"})
+                if words > 28:
+                    findings.append({"kind": "too_long", "where": label, "bullet": b,
+                                     "fix": f"{words} words; cut to under 25"})
+                hits = [s for s in sk.extract(b) if s in job.required + job.preferred]
+                if hits and len(defend) < 3:
+                    defend.append({"skill": hits[0], "where": label,
+                                   "question": f"Your resume says: \"{b}\". Walk me through how you did that "
+                                               f"with {hits[0]}. What was hard?"})
+    resume_text = " ".join(text_parts)
+    have = pr.all_skills(profile)
+    hidden = [s for s in job.required if s in have and s not in sk.extract(resume_text)]
+    for s in hidden:
+        findings.append({"kind": "hidden_skill", "where": "resume", "bullet": "",
+                         "fix": f"'{s}' is in your profile and the job requires it, but this resume never shows it"})
+    weights = {"hidden_skill": 10, "weak_verb": 6, "too_long": 4, "no_impact": 2}
+    strength = max(0, 100 - sum(weights[f["kind"]] for f in findings))
+    order = ["hidden_skill", "weak_verb", "too_long", "no_impact"]
+    top = sorted(findings, key=lambda f: order.index(f["kind"]))[:3]
+    return {"strength": strength, "findings": findings, "top_fixes": top, "defend": defend}
+
+
 def changes(tailored: dict, profile: dict) -> list[str]:
     """Human-readable 'what changed and why' for the approval message."""
     out = []

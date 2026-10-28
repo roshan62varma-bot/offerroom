@@ -147,6 +147,42 @@ def resume_render(ref: str, tailored_json: str = "", actor: str = "agent") -> di
     return safe(room().render)(ref, tailored_json or None, actor)
 
 
+@mcp.tool()
+def resume_critique(ref: str) -> dict:
+    """Second opinion on an application's tailored resume: strength score, top fixes (weak verbs, missing
+    impact, overlong bullets, job skills the candidate has but the resume hides) and claims to defend."""
+    return safe(room().critique)(ref)
+
+
+# -------------------------------------------------------------- people --
+
+@mcp.tool()
+def people_show() -> dict:
+    """Who the humans in the room are: the owner (the candidate), their mentors, and whether mentor review
+    is required. Only the candidate can change this, from their terminal."""
+    return safe(room().people_show)()
+
+
+@mcp.tool()
+def review_add(ref: str, reviewer: str, verdict: str, comment: str = "") -> dict:
+    """Record a HUMAN reviewer's verdict on a resume: verdict 'approve' or 'changes'. reviewer must be
+    'human:<their chat username>' and a registered mentor (or the owner). Only call it when they wrote it in the room."""
+    return safe(room().review_add)(ref, reviewer, verdict, comment)
+
+
+@mcp.tool()
+def reviews_show(ref: str) -> dict:
+    """All human reviews of an application's resume."""
+    return safe(room().reviews_show)(ref)
+
+
+@mcp.tool()
+def board() -> dict:
+    """The whole pipeline as one Markdown document (title + markdown) to keep pinned in the room as a
+    room document. Update it after every status change."""
+    return safe(room().board)()
+
+
 # ------------------------------------------------------------- tracker --
 
 @mcp.tool()
@@ -202,9 +238,18 @@ def interview_start(ref: str, questions: int = 6) -> dict:
 
 
 @mcp.tool()
-def interview_answer(session_id: int, question_id: str, answer: str) -> dict:
-    """Grade the human's answer (rubric: relevance, structure, specificity, length) and return the next question."""
-    return safe(room().interview_answer)(session_id, question_id, answer)
+def interview_answer(session_id: int, question_id: str, answer: str, coach_score: float | None = None,
+                     coach_notes: str = "") -> dict:
+    """Grade the candidate's answer and return the next question. The rubric scores relevance, structure,
+    specificity and length; filler words from spoken answers are ignored and counted. Pass your own 1-5
+    judgement as coach_score (with a short coach_notes reason): the final score averages both."""
+    return safe(room().interview_answer)(session_id, question_id, answer, coach_score, coach_notes)
+
+
+@mcp.tool()
+def interview_add_question(session_id: int, question: str, asked_by: str) -> dict:
+    """Add a panel question from a human mentor to a running mock interview. asked_by='human:<username>'."""
+    return safe(room().interview_add_question)(session_id, question, asked_by)
 
 
 @mcp.tool()

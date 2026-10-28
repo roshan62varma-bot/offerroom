@@ -22,3 +22,15 @@
 | 2:55 | "OfferRoom: your job hunt, with a team." | |
 
 **Bonus shot for the judges:** ask `@tracker` *as another agent* to approve. Show the refusal.
+
+## Extra beats for a live recording (v2 features)
+| On screen | Say |
+|---|---|
+| Tailor → `@interviewer please review #1` → critique, then `@tailor fixes for #1` | "Agents push back on each other before anything reaches me, and they never invent numbers." |
+| A second Mattermost account (your mentor) writes `@tracker review #1 changes: …` then `approve` | "My mentor reviews in the same room. With review required, even I can't approve until they sign off." |
+| Mentor: `@interviewer panel question: …` | "And they can join my mock interview." |
+| The pinned **📋 OfferRoom board** document | "Everything, always up to date, pinned in the room." |
+
+Setup for the mentor: `offerroom --home workspace people mentor-add <username>` and
+`offerroom --home workspace people review required`. Then allow that user to talk to tracker and interviewer
+in Switch (see `SWITCH_SETUP.md` §4b).

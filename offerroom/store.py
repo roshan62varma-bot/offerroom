@@ -40,6 +40,9 @@ create table if not exists interviews (
 create table if not exists answers (
   id integer primary key autoincrement, interview_id int, qid text, answer text, score real,
   feedback text, at text);
+create table if not exists reviews (
+  id integer primary key autoincrement, app_id int, reviewer text, role text, verdict text,
+  comment text, at text);
 """
 
 
@@ -48,7 +51,8 @@ class TrackerError(ValueError):
 
 
 def now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # microseconds: "was this review given after the latest render?" must hold within the same second
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 class Store:
@@ -174,8 +178,34 @@ class Store:
         return [dict(r) for r in self.db.execute("select at, actor, action, detail from events where app_id=? "
                                                  "order by id", (app_id,))]
 
+    def reached(self, stages: tuple[str, ...]) -> dict[str, int]:
+        """Applications that ever reached each stage (a later stage implies the earlier ones)."""
+        hit = {s: {r[0] for r in self.db.execute("select distinct app_id from events where action=?", (s,))}
+               for s in stages}
+        for i in range(len(stages) - 2, -1, -1):
+            hit[stages[i]] |= hit[stages[i + 1]]
+        return {s: len(ids) for s, ids in hit.items()}
+
     def events_since(self, since: str) -> list[dict]:
         return [dict(r) for r in self.db.execute("select * from events where at>=? order by id", (since,))]
+
+    # ---------------------------------------------------------- reviews --
+    def add_review(self, app_id: int, reviewer: str, role: str, verdict: str, comment: str) -> None:
+        self.db.execute("insert into reviews (app_id, reviewer, role, verdict, comment, at) values (?,?,?,?,?,?)",
+                        (app_id, reviewer, role, verdict, comment, now()))
+        self.db.commit()
+
+    def reviews(self, app_id: int) -> list[dict]:
+        return [dict(r) for r in self.db.execute("select reviewer, role, verdict, comment, at from reviews "
+                                                 "where app_id=? order by id", (app_id,))]
+
+    def last_render_at(self, app_id: int) -> str:
+        row = self.db.execute("select max(at) from events where app_id=? and action='tailored'", (app_id,)).fetchone()
+        return row[0] or ""
+
+    def update_questions(self, iid: int, questions: list[dict]) -> None:
+        self.db.execute("update interviews set questions=? where id=?", (json.dumps(questions), iid))
+        self.db.commit()
 
     # ------------------------------------------------------- interviews --
     def new_interview(self, app_id: int | None, job_id: str, questions: list[dict]) -> int:

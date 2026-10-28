@@ -15,7 +15,8 @@ AGENTS = ("scout", "tailor", "interviewer", "tracker")
 ALL_TOOLS = ("profile_show", "profile_import", "profile_save", "profile_approve", "job_add_url", "job_add_text",
              "jobs_search", "watchlist", "fit_score", "resume_draft", "resume_verify", "resume_render",
              "app_set_status", "app_note", "app_history", "pipeline", "followups_due", "followup_snooze", "digest",
-             "interview_start", "interview_answer", "interview_summary")
+             "interview_start", "interview_answer", "interview_summary", "interview_add_question",
+             "resume_critique", "people_show", "review_add", "reviews_show", "board")
 
 
 def _print(result: dict, as_json: bool) -> int:
@@ -50,18 +51,30 @@ def cmd_demo(args, room: OfferRoom) -> int:
     step("5. Honest tailored resume rendered (PDF + DOCX + cover note)")
     r = room.render("1")
     print(r["message"], "\n\n--- cover note ---\n" + r["cover_note"])
-    step("6. Human approves and applies; Tracker schedules a follow-up")
-    print(room.set_status("1", "approved", "human:demo-user", "approve 1")["message"])
+    step("6. Second opinion: the Interviewer critiques the Tailor's resume")
+    print(room.critique("1")["message"])
+    step("7. A mentor is in the room: review is required before the candidate can approve")
+    (room.home / "people.json").write_text(json.dumps({"owners": ["demo-user"], "mentors": ["priya"],
+                                                       "mentor_review": "required"}), encoding="utf-8")
+    print(room.people_show()["message"])
+    print(safe(room.set_status)("1", "approved", "human:demo-user", "approve #1")["message"])
+    print(safe(room.set_status)("1", "approved", "human:someone-else", "approve #1")["message"])
+    print(room.review_add("1", "human:priya", "approve", "Strong backend story. Lead with QueueLess.")["message"])
+    step("8. Candidate approves and applies; Tracker schedules a follow-up")
+    print(room.set_status("1", "approved", "human:demo-user", "approve #1")["message"])
     print(room.set_status("1", "applied", "human:demo-user", "applied on their site")["message"])
-    step("7. Mock interview for that role")
+    step("9. Mock interview for that role, with a mentor on the panel")
     s = room.interview_start("1", 4)
     print(s["message"])
     print(room.interview_answer(s["session_id"], "q1",
           "I'm a final-year CS student. While building QueueLess I had to keep canteen queues live, so I built a "
           "FastAPI service with Redis and load-tested it with 300 concurrent users. I want Kestrel Labs because "
-          "I enjoy backend work in Python and SQL, which is exactly this role.")["message"])
-    step("8. Pipeline and weekly digest")
-    print(room.pipeline()["message"], "\n")
+          "I enjoy backend work in Python and SQL, which is exactly this role.", coach_score=4,
+          coach_notes="clear story; name one trade-off")["message"])
+    print(room.interview_add_question(s["session_id"], "Why payments, and what would you build first here?",
+                                      "human:priya")["message"])
+    step("10. The pinned board and the weekly digest")
+    print(room.board()["markdown"], "\n")
     print(room.digest()["message"])
     print(f"\nFiles are in {room.home / 'outputs'}")
     return 0
@@ -81,6 +94,27 @@ def _register_mcp(agent_dir: Path, home: Path) -> str:
     run("remove", "-s", "local", "offerroom")
     r = run("add-json", "-s", "local", "offerroom", json.dumps(server))
     return "registered" if r.returncode == 0 else f"claude mcp add-json failed: {(r.stderr or r.stdout).strip()}"
+
+
+def _write_opencode(agent_dir: Path, home: Path, tools: list[str], protocol: Path, model: str | None) -> None:
+    """Same agent, OpenCode flavour, so it can run on free or other models (Gemini, Groq, OpenRouter,
+    a local Ollama model...). OpenCode reads AGENTS.md and opencode.json from the working directory."""
+    role = (agent_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    role = role.replace("@ROOM_PROTOCOL.md", protocol.read_text(encoding="utf-8"))  # inline the shared protocol
+    (agent_dir / "AGENTS.md").write_text(role, encoding="utf-8")
+    launcher = Path(sys.executable).with_name("offerroom-mcp.exe" if sys.platform == "win32" else "offerroom-mcp")
+    config = {
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {"offerroom": {"type": "local", "command": [launcher.as_posix()],
+                              "environment": {"OFFERROOM_HOME": home.as_posix()}, "enabled": True}},
+        # same least-privilege rules as the Claude Code agents: no shell, no file edits, only this
+        # agent's OfferRoom tools
+        "tools": {"bash": False, "write": False, "edit": False, "webfetch": False,
+                  **{f"offerroom_{t}": False for t in ALL_TOOLS if t not in tools}},
+    }
+    if model:
+        config["model"] = model
+    (agent_dir / "opencode.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
 
 def cmd_setup_agents(args, room: OfferRoom) -> int:
@@ -119,6 +153,10 @@ def cmd_setup_agents(args, room: OfferRoom) -> int:
                         "deny": [f"mcp__offerroom__{t}" for t in ALL_TOOLS if t not in tools]
                                 + ["Bash", "Write", "Edit", "WebFetch"]}}
         (settings_dir / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        if args.provider == "opencode":
+            _write_opencode(d, room.home, tools, protocol, args.model)
+            print(f"✅ {name}: {d} · OpenCode config written" + (f" (model {args.model})" if args.model else ""))
+            continue
         status = "skipped (--no-register)" if args.no_register else _register_mcp(d, room.home)
         ok = ok and status in ("registered", "skipped (--no-register)")
         print(f"{'✅' if ok else '❌'} {name}: {d} · MCP {status}")
@@ -139,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("setup-agents", help="wire the Switch agent folders to this machine")
     p.add_argument("--agents-dir", default="agents")
     p.add_argument("--no-register", action="store_true", help="don't register the MCP server with Claude Code")
+    p.add_argument("--provider", choices=["claude", "opencode"], default="claude",
+                   help="claude = Claude Code (default); opencode = free/other models via OpenCode")
+    p.add_argument("--model", help="OpenCode model, e.g. google/gemini-2.5-flash, groq/llama-3.3-70b-versatile, "
+                                   "ollama/qwen2.5:14b")
     p.add_argument("--install-into", metavar="DIR",
                    help="copy the agents into Switch's own agent folders (e.g. ~/.switch/agents/<server>) and wire those")
     sub.add_parser("mcp", help="run the MCP server (stdio)")
@@ -148,10 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--once", choices=["morning", "digest"], help="post one message now and exit")
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("people", help="who may decide (owner) and review (mentors); terminal only")
+    p.add_argument("action", nargs="?", default="show",
+                   choices=["show", "owner", "mentor-add", "mentor-remove", "review"])
+    p.add_argument("value", nargs="?", help="chat username, or off|optional|required for 'review'")
+
     p = sub.add_parser("profile", help="show / import / approve your profile")
     p.add_argument("action", choices=["show", "import", "approve", "sample"])
     p.add_argument("source", nargs="?", help="resume PDF/TXT path or text (for import)")
-    p.add_argument("--as", dest="who", default="you")
+    p.add_argument("--as", dest="who", default=None, help="your chat username (default: the room owner)")
 
     p = sub.add_parser("add", help="add a job by URL, or by pasted text with --text-file")
     p.add_argument("url", nargs="?")
@@ -175,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("status", help="move an application (you are the human here)")
     p.add_argument("ref")
     p.add_argument("status")
-    p.add_argument("--as", dest="who", default="you")
+    p.add_argument("--as", dest="who", default=None, help="your chat username (default: the room owner)")
     p.add_argument("--note", default="")
     sub.add_parser("pipeline")
     sub.add_parser("followups")
@@ -204,7 +251,29 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_demo(args, room)
     if args.cmd == "setup-agents":
         return cmd_setup_agents(args, room)
-    who = f"human:{getattr(args, 'who', 'you')}"
+    if args.cmd == "people":
+        from .people import REVIEW_MODES
+        ppl = room.people
+        if args.action != "show" and not args.value:
+            print(f"❌ '{args.action}' needs a value", file=sys.stderr)
+            return 2
+        v = (args.value or "").lstrip("@").lower()
+        if args.action == "owner":
+            ppl.owners = [v]
+        elif args.action == "mentor-add" and v not in ppl.mentors:
+            ppl.mentors.append(v)
+        elif args.action == "mentor-remove":
+            ppl.mentors = [m for m in ppl.mentors if m != v]
+        elif args.action == "review":
+            if v not in REVIEW_MODES:
+                print(f"❌ review must be one of {', '.join(REVIEW_MODES)}", file=sys.stderr)
+                return 2
+            ppl.review = v
+        if args.action != "show":
+            ppl.save()
+        return _print(room.people_show(), args.json)
+    owner = room.people.owners[0] if room.people.owners else "you"
+    who = f"human:{getattr(args, 'who', None) or owner}"
     if args.cmd == "profile":
         if args.action == "show":
             return _print(safe(room.profile_show)(), args.json)

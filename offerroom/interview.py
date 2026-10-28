@@ -110,8 +110,15 @@ def plan(profile: dict, job: Job, fit: dict, n: int = 6) -> list[dict]:
     return qs[:n]
 
 
-def grade(question: dict, answer: str) -> dict:
-    a = answer.strip()
+FILLERS = re.compile(r"\b(?:um+|uh+|erm+|hmm+|you know|i mean|basically)\b[,.]?\s*|(?<=, )like,\s*", re.I)
+
+
+def grade(question: dict, answer: str, coach_score: float | None = None, coach_notes: str = "") -> dict:
+    """Rubric grade. Spoken answers (e.g. dictated with Wispr Flow) are graded on their content: filler
+    words are removed first and reported separately. If the Interviewer agent gives its own 1-5 judgement
+    (`coach_score`), the final score is the average of both, and both are kept."""
+    fillers = len(FILLERS.findall(answer))
+    a = re.sub(r"\s+", " ", FILLERS.sub("", answer)).strip()
     low = a.lower()
     words = len(re.findall(r"\w+", a))
     exp = question.get("expect", [])
@@ -128,8 +135,14 @@ def grade(question: dict, answer: str) -> dict:
                    (len(re.findall(r"[A-Z][a-zA-Z+#.]+", a)) >= 2) * 0.3)
     length = 1.0 if 40 <= words <= 220 else 0.6 if 20 <= words < 40 or 220 < words <= 320 else 0.2
     raw = 0.4 * relevance + 0.25 * structure + 0.2 * specific + 0.15 * length
-    score = round(1 + 4 * raw, 1)
+    rubric_score = round(1 + 4 * raw, 1)
+    score = rubric_score
+    if coach_score is not None:
+        coach_score = max(1.0, min(5.0, float(coach_score)))
+        score = round((rubric_score + coach_score) / 2, 1)
     tips = []
+    if fillers >= 3:
+        tips.append(f"{fillers} filler words (um, like, basically…). Pause instead; it sounds more confident")
     missed = [e for e in exp if e not in hit][:3]
     if missed:
         tips.append(f"Strong answers usually touch on: {', '.join(missed)}")
@@ -144,10 +157,18 @@ def grade(question: dict, answer: str) -> dict:
         tips.append(f"Too short ({words} words); aim for 60–150")
     elif words > 220:
         tips.append(f"Too long ({words} words); lead with the point, then one example")
-    return {"score": score, "out_of": 5,
+    return {"score": score, "out_of": 5, "rubric_score": rubric_score, "coach_score": coach_score,
+            "coach_notes": coach_notes, "fillers": fillers,
             "rubric": {"relevance": round(relevance, 2), "structure": round(structure, 2),
                        "specificity": round(specific, 2), "length": round(length, 2)},
             "covered": hit, "tips": tips, "words": words}
+
+
+def panel_question(questions: list[dict], question: str, asked_by: str) -> dict:
+    """A question added by a human panelist (a mentor) to a running mock interview."""
+    q = {"id": f"q{len(questions) + 1}", "kind": "panel", "question": question.strip(), "asked_by": asked_by,
+         "expect": []}
+    return q
 
 
 def summary(session: dict) -> dict:

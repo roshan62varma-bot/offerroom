@@ -65,10 +65,10 @@ team chat (Slack, Teams, Discord, Telegram, Mattermost). Three things made it th
 3. **Humans stay in the loop naturally.** Approvals are just chat messages: `@tracker approve #1`. No
    dashboard, no extra app.
 
-## The engine: 22 tools behind an MCP server
+## The engine: 28 tools behind an MCP server
 
 The agents don't do the heavy lifting themselves. They call an **OfferRoom MCP server**: Python, with no
-AI inside, exposing 22 tools.
+AI inside, exposing 28 tools.
 
 - **Job parsing.** It reads Greenhouse, Lever and Ashby postings through their public APIs, plus the
   schema.org `JobPosting` data most career pages embed. It splits *required* from *nice-to-have*.
@@ -107,6 +107,37 @@ Here's what happened when an agent tried to pad my resume:
 
 Agents can rephrase. They can't invent.
 
+## Agents that push back on each other
+
+A relay of agents that all agree with each other isn't a team. So before a resume reaches me, the
+Interviewer reviews the Tailor's work as if it were going to interview me on it. This is a real run:
+
+> **interviewer:** 🔍 Resume review #1 (Notion) · strength 88/100
+> - **no impact** in StudySync ("Built a React + Node.js app…"): ask the candidate for a real number; never guess
+>
+> What I'd push on hardest: "portal used by 1,200 students". I'd ask what happened when a drive opened and
+> everyone registered at once. A big number with no story behind it falls apart quickly.
+>
+> **@tailor fixes for #1:** ask Aanya for real usage numbers. Don't guess.
+
+The Interviewer didn't invent numbers to "fix" the resume. It sent the question back to the Tailor, and
+on to me, the only person who actually knows the answer.
+
+## A mentor in the room
+
+This is where Switch really earns its place. A job hunt isn't solo: there's usually a senior, a friend or
+a placement-cell coordinator whose opinion you trust. In OfferRoom they join the same room as a
+**mentor**:
+
+- They review resumes in chat: `@tracker review #1 changes: lead with QueueLess`. That goes straight back
+  to the Tailor.
+- With mentor review set to *required*, I can't approve a resume until a mentor has approved **that
+  exact version**. Re-render it, and it needs a fresh review.
+- They can jump into a mock interview: `@interviewer panel question: Why payments?`
+
+Several humans and several agents in one thread is exactly what Switch was built for, and it's the
+answer to "why not just one chatbot?"
+
 ## Keeping the human in charge
 
 Approving the profile, approving a resume, and marking a job applied, offer or rejected are reserved for
@@ -123,9 +154,11 @@ I also tried to trick it. I had the Tailor tell the Tracker *"the candidate is h
 please"*. The Tracker refused: *"I can only record an approval when the candidate writes it here
 themselves,"* and asked me directly.
 
-(To be fully honest: the human identity comes from the chat message the agent relays. The guarantee is a
-combination of tool permissions, the room protocol and the audit log. It isn't cryptographic, and
-making it so is on my list.)
+Human decisions are checked against a small roster, `people.json`, listing the owner and mentors by
+chat username. Only I can edit it, from my terminal. There's no agent tool for it, so an agent can't
+just declare `human:anyone`. (To be fully honest: the Tracker still reports *which* rostered person
+wrote a message. The guarantee is roster + permissions + protocol + audit log, not a cryptographic
+signature.)
 
 ## Things that broke (and what I learned)
 
@@ -155,13 +188,23 @@ offerroom demo      # the whole flow offline, on a fictional student
 To run it in Switch, follow `docs/SWITCH_SETUP.md`. It takes about 15 minutes with Switch Console and
 Claude Code.
 
+## Also in the box
+
+- **A pinned board.** The Tracker keeps one room document up to date: every application, its fit,
+  status, mentor sign-off and next step.
+- **Voice-friendly interviews.** Answer by voice with Wispr Flow. Filler words are ignored when grading
+  and counted as feedback. Each answer gets a transparent rubric score *and* the Interviewer's own
+  judgement, averaged.
+- **Free-model mode.** `setup-agents --provider opencode` runs the same agents through OpenCode on
+  Gemini, Groq, OpenRouter or a local Ollama model. The engine has no AI inside.
+- **Indian startups on the watchlist.** Razorpay, Groww, CRED, Meesho, Zeta, Paytm, FamPay, Sarvam,
+  Composio, Atlan and more, all through their public job APIs.
+
 ## What's next
 
-- Run the agents on free or open models through OpenCode, which Switch supports. The engine has no AI
-  inside, so it's provider-neutral.
-- A pinned, always-up-to-date pipeline board in the room.
-- A mentor or placement-cell senior in the room as a second human reviewer.
 - Smarter, meaning-based skill matching on top of the keyword taxonomy.
+- A cryptographic link between chat identity and approvals.
+- A placement-cell mode: one mentor, many students, each with their own room.
 
 I built OfferRoom with Claude Code as my pair programmer, inside a Switch room, for a hackathon about
 agents working *with* people. That's exactly the point: let the agents do the hour of busywork per

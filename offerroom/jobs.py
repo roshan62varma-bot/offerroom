@@ -294,11 +294,20 @@ def search(query: str = "", location: str = "", remote_only: bool = False, level
     for kind, boards in (watchlist or {}).items():
         for board in boards:
             sources.append((f"{kind}:{board}", lambda k=kind, b=board: _board(k, b)))
-    for name, fn in sources:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch(src):
+        name, fn = src
         try:
-            jobs.extend(fn())
+            return fn(), None
         except (JobError, KeyError, ValueError) as e:
-            notes.append(f"{name}: {e}")
+            return [], f"{name}: {e}"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:  # boards are independent; fetch them in parallel
+        for found, note in pool.map(fetch, sources):
+            jobs.extend(found)
+            if note:
+                notes.append(note)
     terms = [t for t in re.findall(r"[a-z0-9+#.]+", query.lower()) if len(t) > 1]
     out, seen = [], set()
     for j in jobs:

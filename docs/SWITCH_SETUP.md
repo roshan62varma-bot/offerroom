@@ -67,6 +67,28 @@ Find `<server>` (e.g. `localhost-65098`) by opening `%USERPROFILE%\.switch\agent
 2. Add all four agents to it. On each agent's page, use **Add to room**.
 3. In Mattermost, say hi: `@tracker hello`. An agent session starts on its first mention.
 
+## 4b. Register the humans (terminal only)
+Only names on this roster can make decisions, and no agent can edit it.
+```bash
+offerroom --home workspace people owner <your Mattermost username>      # e.g. "user" on a local server
+offerroom --home workspace people                                     # check it
+```
+
+**Optional: add a mentor** (a senior, friend or placement-cell coordinator):
+1. Create a Mattermost account for them. On a local server: Mattermost → System Console → Users, or invite
+   them with a link. Add them to `#offerroom`.
+2. Put them on the roster and choose how strict to be:
+   ```bash
+   offerroom --home workspace people mentor-add <their username>
+   offerroom --home workspace people review required    # or: optional (default), off
+   ```
+3. Agents only listen to their owner by default. On **tracker** and **interviewer**, set **Who can talk to
+   your agent** to a rule that also allows the mentor (Custom rules, or Anyone on a private local server).
+   The roster still decides what the mentor is *allowed* to do.
+
+The mentor then writes `@tracker review #3 approve` or `@tracker review #3 changes: lead with QueueLess`,
+and can join a mock interview with `@interviewer panel question: Why fintech?`.
+
 ## 5. First run
 1. `@tracker here's my resume` and attach your PDF. Review the draft, correct anything wrong, then `@tracker approve profile`.
    To demo without your own data, run `offerroom --home workspace profile sample` first. That loads a fictional student.
@@ -89,8 +111,26 @@ Switch's agent API.
    offerroom clock                    # keep running
    ```
 
-This part hasn't been tested against a live server yet. If the API differs, just type the two
+On a local server, the API URL is `http://127.0.0.1:<port>`: the number in your
+`%USERPROFILE%\.switch\agents\localhost-<port>` folder. The message route was checked there (it answers
+`401 Missing or invalid Authorization header` without a key). If anything differs, just type the two
 messages yourself.
+
+## 7. Optional: free or other models (OpenCode)
+The engine has no AI inside, so the agents can run on any model OpenCode supports.
+1. Install OpenCode and sign in to a provider. Free or cheap options include a Gemini API key (free tier),
+   Groq, OpenRouter's free models, or a local model with Ollama.
+2. Generate the OpenCode version of every agent:
+   ```bash
+   offerroom --home workspace setup-agents --install-into "%USERPROFILE%\.switch\agents\<server>" ^
+       --provider opencode --model google/gemini-2.5-flash
+   ```
+   This writes `AGENTS.md` (role plus protocol) and `opencode.json` (the OfferRoom MCP server, and the same
+   tool allow/deny rules) into each agent folder.
+3. In Switch Console, set each agent's **Agent provider** to **OpenCode**, then type `!reset-all-agents`.
+
+Model names change often. Use the exact id your provider lists. Smaller models follow the room protocol
+less reliably, so try Scout and Tracker on a free model first.
 
 ## Troubleshooting
 | Symptom | Fix |

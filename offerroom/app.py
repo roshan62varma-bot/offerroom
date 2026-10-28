@@ -21,10 +21,13 @@ from . import jobs as jb
 from . import profile as pr
 from . import render as rd
 from . import tailor as tl
-from .store import STATUSES, Store, TrackerError
+from .people import People, PeopleError
+from .store import HUMAN_ONLY, STATUSES, Store, TrackerError
 
-DEFAULT_WATCHLIST = {"greenhouse": ["razorpaysoftwareprivatelimited", "stripe"], "lever": ["cred"],
-                     "ashby": ["notion", "sarvam"]}
+# Company boards checked to respond on public APIs (Oct 2026), mostly Indian startups that hire freshers.
+DEFAULT_WATCHLIST = {"greenhouse": ["razorpaysoftwareprivatelimited", "groww", "inmobi", "hackerrank"],
+                     "lever": ["cred", "meesho", "zeta", "paytm", "fampay"],
+                     "ashby": ["sarvam", "composio", "atlan", "notion"]}
 
 
 class OfferRoomError(ValueError):
@@ -42,6 +45,10 @@ class OfferRoom:
         self.store = Store(self.home / "offerroom.db")
         self.profile_path = self.home / "profile.json"
         self.watchlist_path = self.home / "watchlist.json"
+
+    @property
+    def people(self) -> People:
+        return People(self.home / "people.json")  # re-read: the candidate may change it from the CLI
 
     # ---------------------------------------------------------- profile --
     def profile(self) -> dict:
@@ -94,8 +101,10 @@ class OfferRoom:
         return {"ok": True, "profile": p, "message": "Profile saved. It needs your approval before tailoring."}
 
     def profile_approve(self, actor: str, note: str = "") -> dict:
-        if not actor.lower().startswith("human"):
-            raise OfferRoomError("only a human can approve the profile (actor='human:<name>')")
+        try:
+            self.people.check_owner(actor)
+        except PeopleError as e:
+            raise OfferRoomError(str(e)) from None
         p = self.profile()
         problems = pr.validate(p)
         if problems:
@@ -226,9 +235,103 @@ class OfferRoom:
         return {"ok": True, "app_id": app["id"], "pdf": pdf["path"], "docx": docx, "cover_note": note,
                 "changes": changes, "warnings": warns, "message": "\n".join(msg)}
 
+    def critique(self, ref: str | int) -> dict:
+        """Second opinion on the latest tailored resume, for the Interviewer to push back on the Tailor."""
+        app = self.store.app(self._app_id(ref))
+        if not app.get("tailored"):
+            raise OfferRoomError(f"#{app['id']} has no tailored resume yet")
+        c = tl.critique(app["tailored"], self.profile(), self._job(app["id"]))
+        lines = [f"🔍 **Resume review #{app['id']}: {app['title']} at {app['company']}** · strength {c['strength']}/100"]
+        for f in c["top_fixes"]:
+            quote = f" (\"{f['bullet'][:70]}…\")" if f["bullet"] else ""
+            lines.append(f"- **{f['kind'].replace('_', ' ')}** in {f['where']}{quote}: {f['fix']}")
+        if not c["top_fixes"]:
+            lines.append("- Nothing to fix. This resume is tight.")
+        if c["defend"]:
+            lines.append("\n🎤 Be ready to defend: " + "; ".join(f"{d['skill']} ({d['where']})" for d in c["defend"]))
+        return {**c, "app_id": app["id"], "message": "\n".join(lines)}
+
+    # ------------------------------------------------------------ people --
+    def people_show(self) -> dict:
+        p = self.people
+        return {"owners": p.owners, "mentors": p.mentors, "mentor_review": p.review,
+                "message": "👥 " + p.describe()}
+
+    def _check_review_gate(self, app_id: int, note: str) -> None:
+        p = self.people
+        if p.review != "required" or not p.mentors:
+            return
+        since = self.store.last_render_at(app_id)
+        ok = [r for r in self.store.reviews(app_id) if r["role"] == "mentor" and r["verdict"] == "approve"
+              and r["at"] >= since]
+        if not ok and "override" not in note.lower():
+            raise OfferRoomError(f"mentor review is required before approving #{app_id}: ask "
+                                 f"{', '.join('@' + m for m in p.mentors)} to review it, or reply "
+                                 f"`@tracker approve #{app_id} override` to skip the review this time")
+
+    def review_add(self, ref: str | int, reviewer: str, verdict: str, comment: str = "") -> dict:
+        app_id = self._app_id(ref)
+        if verdict not in ("approve", "changes"):
+            raise OfferRoomError("verdict must be 'approve' or 'changes'")
+        try:
+            name, role = self.people.check_reviewer(reviewer)
+        except PeopleError as e:
+            raise OfferRoomError(str(e)) from None
+        a = self.store.app(app_id)
+        if not a.get("resume_pdf"):
+            raise OfferRoomError(f"#{app_id} has no resume to review yet")
+        self.store.add_review(app_id, name, role, verdict, comment)
+        self.store.log(app_id, f"human:{name}", f"review_{verdict}", comment[:200])
+        if verdict == "approve":
+            msg = f"🧑‍🏫 @{name} ({role}) approved the resume for #{app_id}." + \
+                  (f" \"{comment}\"" if comment else "") + \
+                  f"\nCandidate: reply `@tracker approve #{app_id}` when you're ready to apply."
+        else:
+            msg = f"🧑‍🏫 @{name} ({role}) asked for changes on #{app_id}: \"{comment}\""
+        return {"review": {"reviewer": name, "role": role, "verdict": verdict, "comment": comment}, "message": msg}
+
+    def reviews_show(self, ref: str | int) -> dict:
+        app_id = self._app_id(ref)
+        rs = self.store.reviews(app_id)
+        return {"reviews": rs, "message": "\n".join(
+            f"{r['at'][:16]} · @{r['reviewer']} ({r['role']}) · {r['verdict']}" + (f": {r['comment']}" if r['comment'] else "")
+            for r in rs) or f"No reviews on #{app_id} yet."}
+
+    def board(self) -> dict:
+        """The whole pipeline as one Markdown document, meant to be pinned in the room."""
+        apps = self.store.apps()
+        order = {s: i for i, s in enumerate(["interviewing", "applied", "approved", "tailored", "shortlisted",
+                                             "found", "offer", "rejected", "withdrawn"])}
+        nxt = {"found": "decide: tailor or skip", "shortlisted": "tailor", "tailored": "review & approve",
+               "approved": "apply on their site", "applied": "follow up", "interviewing": "prepare: mock interview",
+               "offer": "🎉 decide", "rejected": "-", "withdrawn": "-"}
+        rows = ["| # | Role | Company | Fit | Status | Next step | Follow-up |", "|---|---|---|---|---|---|---|"]
+        for a in sorted(apps, key=lambda x: (order.get(x["status"], 99), -(x["fit_score"] or 0))):
+            reviews = self.store.reviews(a["id"])
+            status = a["status"] + (" ✅ mentor" if any(r["verdict"] == "approve" and r["role"] == "mentor"
+                                                       for r in reviews) else "")
+            fu = (a.get("followup_at") or "")[:10] if a["status"] == "applied" else ""
+            rows.append(f"| {a['id']} | {a['title']} | {a['company']} | {a['fit_score'] or '?'}% | {status} | "
+                        f"{nxt.get(a['status'], '')} | {fu} |")
+        stages = ("found", "tailored", "approved", "applied", "interviewing", "offer")
+        reached = self.store.reached(stages)  # how many applications ever got to each stage
+        funnel = " → ".join(f"{s} {reached[s]}" for s in stages)
+        doc = "\n".join([f"# 📋 OfferRoom board", f"_Updated {datetime.now():%d %b %Y, %H:%M} by @tracker_", "",
+                         f"**Funnel:** {funnel}", "", *(rows if apps else ["Nothing yet. Paste a job link to @scout."]),
+                         "", f"👥 {self.people.describe()}"])
+        return {"title": "📋 OfferRoom board", "markdown": doc, "message": doc}
+
     # ---------------------------------------------------------- tracker --
     def set_status(self, ref: str | int, status: str, actor: str, note: str = "") -> dict:
-        a = self.store.set_status(self._app_id(ref), status, actor, note)
+        app_id = self._app_id(ref)
+        if status in HUMAN_ONLY:
+            try:
+                self.people.check_owner(actor)
+            except PeopleError as e:
+                raise OfferRoomError(str(e)) from None
+        if status == "approved":
+            self._check_review_gate(app_id, note)
+        a = self.store.set_status(app_id, status, actor, note)
         extra = ""
         if status == "applied":
             extra = f" I'll remind you to follow up on {a['followup_at'][:10]}."
@@ -325,16 +428,31 @@ class OfferRoom:
                 "message": f"🎤 **Mock interview #{sid}: {job.title} at {job.company}** ({len(qs)} questions)\n"
                            f"**{q['id']} ({q['kind']})**: {q['question']}"}
 
-    def interview_answer(self, session_id: int, qid: str, answer: str) -> dict:
+    def interview_add_question(self, session_id: int, question: str, asked_by: str) -> dict:
+        """A mentor joins as a panelist and adds their own question."""
+        try:
+            name, role = self.people.check_reviewer(asked_by)
+        except PeopleError as e:
+            raise OfferRoomError(str(e)) from None
+        s = self.store.interview(session_id)
+        q = iv.panel_question(s["questions"], question, name)
+        self.store.update_questions(session_id, s["questions"] + [q])
+        return {"question": q, "message": f"🧑‍🏫 Panel question from @{name} added as **{q['id']}**: {q['question']}"}
+
+    def interview_answer(self, session_id: int, qid: str, answer: str, coach_score: float | None = None,
+                         coach_notes: str = "") -> dict:
         s = self.store.interview(session_id)
         q = next((x for x in s["questions"] if x["id"] == qid), None)
         if not q:
             raise OfferRoomError(f"session {session_id} has no question '{qid}'")
-        g = iv.grade(q, answer)
+        g = iv.grade(q, answer, coach_score, coach_notes)
         self.store.add_answer(session_id, qid, answer, g["score"], g)
         answered = {a["qid"] for a in s["answers"]} | {qid}
         nxt = next((x for x in s["questions"] if x["id"] not in answered), None)
-        msg = [f"**{g['score']}/5** on {qid}", *[f"- {t}" for t in g["tips"]]]
+        how = (f" (rubric {g['rubric_score']} + coach {g['coach_score']})" if g["coach_score"] is not None else "")
+        msg = [f"**{g['score']}/5** on {qid}{how}", *[f"- {t}" for t in g["tips"]]]
+        if q.get("asked_by"):
+            msg.insert(0, f"_(panel question from @{q['asked_by']})_")
         if nxt:
             msg.append(f"\n**{nxt['id']} ({nxt['kind']})**: {nxt['question']}")
         else:
@@ -351,7 +469,7 @@ def safe(fn):
     def run(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except (OfferRoomError, TrackerError, pr.ProfileError, jb.JobError, json.JSONDecodeError) as e:
+        except (OfferRoomError, TrackerError, PeopleError, pr.ProfileError, jb.JobError, json.JSONDecodeError) as e:
             return {"ok": False, "message": f"❌ {e}"}
     run.__name__, run.__doc__ = fn.__name__, fn.__doc__
     return run

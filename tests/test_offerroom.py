@@ -130,7 +130,7 @@ def test_agent_edit_resets_profile_approval(room):
 def test_human_only_statuses(room):
     room.profile_approve("human:aanya")
     room.render("1")
-    with pytest.raises(TrackerError, match="human"):
+    with pytest.raises(OfferRoomError, match="human"):
         room.set_status("1", "approved", "agent:tailor")
     room.set_status("1", "approved", "human:aanya", "approve 1")
     with pytest.raises(TrackerError, match="can't go"):
@@ -212,6 +212,111 @@ Languages: Python, JavaScript, Java; Tools: Git, Docker
     assert {"Python", "Docker", "Git"} <= set(p["skills"])
     assert p["education"][0]["grade"].startswith("8.1")
     assert not pr.validate(p)
+
+
+# ------------------------------------------------- people & mentor reviews --
+
+def _people(room, owners=("aanya",), mentors=("priya",), review="required"):
+    (room.home / "people.json").write_text(json.dumps({"owners": list(owners), "mentors": list(mentors),
+                                                       "mentor_review": review}))
+
+
+def test_registered_owner_only(room):
+    _people(room)
+    with pytest.raises(OfferRoomError, match="isn't the room owner"):
+        room.profile_approve("human:someone-else")
+    with pytest.raises(OfferRoomError, match="human"):
+        room.profile_approve("agent:tracker")
+    room.profile_approve("human:Aanya")  # usernames are case-insensitive
+    room.render("1")
+    with pytest.raises(OfferRoomError, match="isn't the room owner"):
+        room.set_status("1", "withdrawn", "human:priya")  # a mentor can't make the candidate's decisions
+
+
+def test_mentor_review_gate(room):
+    _people(room)
+    room.profile_approve("human:aanya")
+    room.render("1")
+    with pytest.raises(OfferRoomError, match="mentor review is required"):
+        room.set_status("1", "approved", "human:aanya", "approve #1")
+    with pytest.raises(OfferRoomError, match="registered mentor"):
+        room.review_add("1", "human:random", "approve")
+    room.review_add("1", "human:priya", "changes", "lead with QueueLess")
+    with pytest.raises(OfferRoomError, match="mentor review"):
+        room.set_status("1", "approved", "human:aanya")  # 'changes' isn't an approval
+    room.review_add("1", "human:priya", "approve", "ship it")
+    assert room.set_status("1", "approved", "human:aanya")["application"]["status"] == "approved"
+    # a fresh render needs a fresh review
+    room.render("1")
+    with pytest.raises(OfferRoomError, match="mentor review"):
+        room.set_status("1", "approved", "human:aanya")
+    assert room.set_status("1", "approved", "human:aanya", "approve #1 override")["application"]["status"] == "approved"
+    assert [r["verdict"] for r in room.store.reviews(1)] == ["changes", "approve"]
+
+
+def test_board_document(room):
+    _people(room, review="optional")
+    doc = room.board()["markdown"]
+    assert doc.startswith("# 📋 OfferRoom board") and "| 1 | Backend Engineering Intern | Kestrel Labs |" in doc
+    assert "@priya" in doc
+
+
+# ------------------------------------------------------ critique & interview --
+
+def test_resume_critique_pushes_back(room):
+    room.profile_approve("human:aanya")
+    t = room.tailor_draft("1")["tailored"]
+    t["projects"][0]["bullets"] = ["Worked on a FastAPI service with Redis for canteen queue state"]
+    t["skills"] = [s for s in t["skills"] if s != "SQL"]
+    room.render("1", t)
+    c = room.critique("1")
+    kinds = {f["kind"] for f in c["findings"]}
+    assert {"weak_verb", "no_impact"} <= kinds
+    assert c["strength"] < 100 and c["defend"]
+
+
+def test_voice_fillers_and_coach_score():
+    from offerroom.interview import grade
+    q = {"kind": "technical", "expect": ["hash", "bucket", "collision"]}
+    plain = grade(q, "A hash map puts keys into a bucket by hash, and handles a collision by chaining, "
+                     "because lookups stay O(1) on average, for example in Python dicts.")
+    spoken = grade(q, "Um, so, uh, a hash map puts keys into a bucket by hash, um, and handles a collision by "
+                      "chaining, you know, because lookups stay O(1) on average, for example in Python dicts.")
+    assert spoken["fillers"] >= 4 and any("filler" in t for t in spoken["tips"])
+    assert abs(spoken["rubric_score"] - plain["rubric_score"]) <= 0.3  # graded on content, not ums
+    blended = grade(q, "It uses hashing.", coach_score=5, coach_notes="concise")
+    assert blended["score"] == round((blended["rubric_score"] + 5) / 2, 1)
+
+
+def test_panel_question_from_mentor(room):
+    _people(room, review="optional")
+    s = room.interview_start("1", 3)
+    with pytest.raises(OfferRoomError):
+        room.interview_add_question(s["session_id"], "Why fintech?", "human:stranger")
+    q = room.interview_add_question(s["session_id"], "Why fintech?", "human:priya")["question"]
+    assert q["id"] == "q4" and q["asked_by"] == "priya"
+    for qid in ("q1", "q2", "q3"):
+        room.interview_answer(s["session_id"], qid, "When I built QueueLess I used FastAPI because it was fast.")
+    nxt = room.interview_answer(s["session_id"], "q3", "again")["next"]
+    assert nxt and nxt["id"] == "q4"
+
+
+# ----------------------------------------------------------------- setup --
+
+def test_opencode_setup_mirrors_permissions(tmp_path):
+    from offerroom.cli import ALL_TOOLS, main
+    agents = tmp_path / "agents"
+    shutil.copytree(Path(__file__).parent.parent / "agents", agents,
+                    ignore=shutil.ignore_patterns(".claude", ".switch", "AGENTS.md", "opencode.json"))
+    assert main(["--home", str(tmp_path / "ws"), "setup-agents", "--agents-dir", str(agents),
+                 "--provider", "opencode", "--model", "groq/llama-3.3-70b-versatile"]) == 0
+    cfg = json.loads((agents / "tailor" / "opencode.json").read_text())
+    allowed = json.loads((agents / "tailor" / "tools.json").read_text())
+    assert cfg["model"].startswith("groq/") and cfg["tools"]["bash"] is False
+    assert cfg["tools"]["offerroom_app_set_status"] is False and "offerroom_resume_render" not in cfg["tools"]
+    assert set(allowed) | {k[len("offerroom_"):] for k in cfg["tools"] if k.startswith("offerroom_")} == set(ALL_TOOLS)
+    agents_md = (agents / "tailor" / "AGENTS.md").read_text(encoding="utf-8")
+    assert "@ROOM_PROTOCOL.md" not in agents_md and "Human gates" in agents_md
 
 
 def test_clock_schedule():
